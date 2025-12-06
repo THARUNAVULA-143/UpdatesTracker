@@ -1,0 +1,74 @@
+# ==========================================
+# UpdatesTracker - Backend Requirements
+# ==========================================
+
+# Core Dependencies (from package.json)
+# These are for Node.js/Express Backend
+
+# Framework & Server
+express@^4.21.2
+cors@^2.8.5
+body-parser@^1.20.3
+
+# Database
+mongoose@^8.9.3
+
+# Environment & Configuration
+dotenv@^16.4.7
+
+# HTTP Client
+axios@^1.7.9
+
+# Date/Time Utilities
+date-fns@^4.1.0
+
+# ==========================================
+# Development Dependencies (DevDependencies)
+# ==========================================
+
+nodemon@^3.1.7  # Auto-reload during development
+
+# ==========================================
+# Installation Command
+# ==========================================
+# cd backend
+# npm install
+
+# ==========================================
+# Optional Dependencies (Future Features)
+# ==========================================
+
+# For JWT Authentication (if adding login)
+# jsonwebtoken@^9.1.0
+
+# For Password Hashing (if adding login)
+# bcryptjs@^2.4.3
+
+# For API Documentation
+# swagger-ui-express@^5.0.0
+# swagger-jsdoc@^6.2.8
+
+# For Email Notifications
+# nodemailer@^6.9.7
+
+# For PDF Export
+# pdfkit@^0.13.0
+
+# For Testing
+# jest@^29.7.0
+# supertest@^6.3.3
+
+# ==========================================
+# NOTES
+# ==========================================
+
+# This is a Node.js project, NOT Python
+# Use: npm install
+# Use: npm install --save package-name
+# Use: npm install --save-dev package-name
+
+# NOT: pip install
+# NOT: requirements.txt is for Python projects
+
+# All dependencies are in package.json
+# This file is for documentation purposes
