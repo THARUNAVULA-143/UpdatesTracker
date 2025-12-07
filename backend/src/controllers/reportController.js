@@ -5,6 +5,64 @@ const huggingFaceService = require('../services/huggingface');
 const { startOfDay, endOfDay } = require('date-fns');
 
 /**
+ * ✅ IMPROVED PROMPT BUILDER
+ */
+function buildPrompt(rawInput) {
+  return `You are a professional IT standup report formatter.
+
+**Your task:** Transform raw input into a clean, professional standup update with three sections.
+
+**Input:** ${rawInput}
+
+**Instructions:**
+1. Extract ALL tasks mentioned - never skip any task
+2. Categorize into: Completed (past tense), In Progress (present tense), Support (time only)
+3. Fix grammar and spelling but keep all original information intact
+4. Use exact numbers - never change "2.5" to "5" or round anything
+5. If a section is truly empty, write "None"
+
+**Format your response EXACTLY like this:**
+
+## Completed
+- [List completed tasks in past tense, or "None" if empty]
+
+## In Progress
+- [List ongoing tasks in present continuous, or "None" if empty]
+
+## Support
+- [Time duration only, like "2.5 hours" or "30 minutes", or "None" if empty]
+
+**Example 1:**
+Input: "completed task 101, testing task 202, support 2.5 hrs"
+
+Output:
+## Completed
+- Completed Task 101
+
+## In Progress
+- Currently testing Task 202
+
+## Support
+- 2.5 hours
+
+**Example 2:**
+Input: "working on task 55 and task 66, got help for 30 minutes"
+
+Output:
+## Completed
+None
+
+## In Progress
+- Currently working on Task 55
+- Currently working on Task 66
+
+## Support
+- 30 minutes
+
+Now format this input following the exact format above: ${rawInput}`;
+}
+
+/**
  * FORMAT ONLY (No Save) - FOR PREVIEW
  */
 exports.formatReportOnly = async (req, res) => {
@@ -21,59 +79,19 @@ exports.formatReportOnly = async (req, res) => {
     }
 
     console.log('📋 Raw input:', rawInputs.accomplishments);
-
-    // ✅ YOUR CUSTOM PROMPT FOR IT STANDUP
-    const prompt = `You are an assistant that formats daily IT standup updates for a manager.
-
-Your job is to take raw input from me (which may contain grammar mistakes or shorthand notes) and rewrite it into clear, professional sentences.
-
-Always organize the update into three sections:
-
-## Completed
-- List tasks that were finished
-- Use past tense and concise sentences
-- Extract task numbers if mentioned (e.g., Task 173, Task 22)
-
-## In Progress  
-- List tasks currently being worked on
-- Use present continuous tense (e.g., "working on...", "investigating...", "developing...")
-- Extract task numbers if mentioned
-
-## Support
-- If help, guidance, or collaboration was received, place it here
-- ONLY include the time spent (in minutes or hours)
-- Format: "Received support - [X] minutes" or "Received support - [X] hours"
-- Do not add extra details beyond the time
-
-**Rules:**
-1. Correct grammar and spelling errors
-2. Ensure sentences are meaningful and professional
-3. Do not invent tasks; only use what I provide
-4. If a section has no items, write "None"
-5. Keep sentences concise and clear
-
-**Raw Input:**
-${rawInputs.accomplishments}
-
-**Output Format:**
-## Completed
-- [task in past tense]
-
-## In Progress
-- [task in present continuous tense]
-
-## Support
-- [only time duration if mentioned, otherwise "None"]`.trim();
+    
+    // ✅ Use improved prompt
+    const prompt = buildPrompt(rawInputs.accomplishments);
 
     console.log('🤖 Sending to AI for formatting...');
 
     const formattedReport = await huggingFaceService.generateReport(
       prompt,
-      llmModel || 'deepseek-ai/DeepSeek-V3.2'
+      llmModel || 'Qwen/Qwen2.5-7B-Instruct'
     );
 
     const extractSection = (text, sectionName) => {
-      const regex = new RegExp(`## ${sectionName}\\s*([\\s\\S]*?)(?=##|$)`, "i");
+      const regex = new RegExp(`##\\s*${sectionName}\\s*([\\s\\S]*?)(?=##|$)`, "i");
       const match = text.match(regex);
       return match ? match[1].trim() : "";
     };
@@ -117,57 +135,21 @@ exports.createReport = async (req, res) => {
         message: 'Please provide at least one input field',
       });
     }
+    
+    console.log('📋 Raw input:', rawInputs.accomplishments);
 
-    // ✅ SAME PROMPT AS ABOVE
-    const prompt = `You are an assistant that formats daily IT standup updates for a manager.
-
-Your job is to take raw input from me (which may contain grammar mistakes or shorthand notes) and rewrite it into clear, professional sentences.
-
-Always organize the update into three sections:
-
-## Completed
-- List tasks that were finished
-- Use past tense and concise sentences
-- Extract task numbers if mentioned (e.g., Task 173, Task 22)
-
-## In Progress  
-- List tasks currently being worked on
-- Use present continuous tense (e.g., "working on...", "investigating...", "developing...")
-- Extract task numbers if mentioned
-
-## Support
-- If help, guidance, or collaboration was received, place it here
-- ONLY include the time spent (in minutes or hours)
-- Format: "Received support - [X] minutes" or "Received support - [X] hours"
-- Do not add extra details beyond the time
-
-**Rules:**
-1. Correct grammar and spelling errors
-2. Ensure sentences are meaningful and professional
-3. Do not invent tasks; only use what I provide
-4. If a section has no items, write "None"
-5. Keep sentences concise and clear
-
-**Raw Input:**
-${rawInputs.accomplishments}
-
-**Output Format:**
-## Completed
-- [task in past tense]
-
-## In Progress
-- [task in present continuous tense]
-
-## Support
-- [only time duration if mentioned, otherwise "None"]`.trim();
+    // ✅ Use improved prompt
+    const prompt = buildPrompt(rawInputs.accomplishments);
+    
+    console.log('🤖 Sending to AI for formatting...');
 
     const formattedReport = await huggingFaceService.generateReport(
       prompt,
-      llmModel || 'deepseek-ai/DeepSeek-V3.2'
+      llmModel || 'Qwen/Qwen2.5-7B-Instruct'
     );
 
     const extractSection = (text, sectionName) => {
-      const regex = new RegExp(`## ${sectionName}\\s*([\\s\\S]*?)(?=##|$)`, "i");
+      const regex = new RegExp(`##\\s*${sectionName}\\s*([\\s\\S]*?)(?=##|$)`, "i");
       const match = text.match(regex);
       return match ? match[1].trim() : "";
     };
@@ -184,7 +166,7 @@ ${rawInputs.accomplishments}
       inProgress: sections.inProgress,
       completed: sections.completed,
       support: sections.support,
-      llmModel: llmModel || 'deepseek-ai/DeepSeek-V3.2',
+      llmModel: llmModel || 'Qwen/Qwen2.5-7B-Instruct',
       title: title || `Daily Report - ${new Date().toLocaleDateString()}`,
     });
 
@@ -208,64 +190,161 @@ ${rawInputs.accomplishments}
   }
 };
 
-// Keep all other functions the same...
+/**
+ * GET ALL REPORTS
+ */
 exports.getAllReports = async (req, res) => {
   try {
     const reports = await Report.find().sort({ createdAt: -1 }).limit(100);
-    res.status(200).json({ success: true, count: reports.length, data: reports });
+    res.status(200).json({ 
+      success: true, 
+      count: reports.length, 
+      data: reports 
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to fetch reports' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch reports' 
+    });
   }
 };
 
+/**
+ * GET REPORT BY ID
+ */
 exports.getReportById = async (req, res) => {
   try {
     const report = await Report.findById(req.params.id);
-    if (!report) return res.status(404).json({ success: false, message: 'Report not found' });
-    res.status(200).json({ success: true, data: report });
+    if (!report) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Report not found' 
+      });
+    }
+    res.status(200).json({ 
+      success: true, 
+      data: report 
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to fetch report' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch report' 
+    });
   }
 };
 
+/**
+ * GET REPORTS BY DATE RANGE
+ */
 exports.getReportsByDateRange = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    if (!startDate || !endDate) return res.status(400).json({ success: false, message: 'Provide both dates' });
+    
+    if (!startDate || !endDate) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Provide both startDate and endDate' 
+      });
+    }
+    
     const start = startOfDay(new Date(startDate));
     const end = endOfDay(new Date(endDate));
-    const reports = await Report.find({ createdAt: { $gte: start, $lte: end } }).sort({ createdAt: -1 });
-    res.status(200).json({ success: true, count: reports.length, data: reports });
+    
+    const reports = await Report.find({ 
+      createdAt: { $gte: start, $lte: end } 
+    }).sort({ createdAt: -1 });
+    
+    res.status(200).json({ 
+      success: true, 
+      count: reports.length, 
+      data: reports 
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to fetch reports' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch reports' 
+    });
   }
 };
 
+/**
+ * UPDATE REPORT BY ID
+ */
 exports.updateReportById = async (req, res) => {
   try {
-    const report = await Report.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
-    if (!report) return res.status(404).json({ success: false, message: 'Report not found' });
-    res.status(200).json({ success: true, message: 'Report updated', data: report });
+    const report = await Report.findByIdAndUpdate(
+      req.params.id, 
+      req.body, 
+      { new: true, runValidators: true }
+    );
+    
+    if (!report) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Report not found' 
+      });
+    }
+    
+    res.status(200).json({ 
+      success: true, 
+      message: 'Report updated successfully', 
+      data: report 
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to update report' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to update report' 
+    });
   }
 };
 
+/**
+ * DELETE REPORT BY ID
+ */
 exports.deleteReportById = async (req, res) => {
   try {
     const report = await Report.findByIdAndDelete(req.params.id);
-    if (!report) return res.status(404).json({ success: false, message: 'Report not found' });
-    res.status(200).json({ success: true, message: 'Report deleted' });
+    
+    if (!report) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Report not found' 
+      });
+    }
+    
+    res.status(200).json({ 
+      success: true, 
+      message: 'Report deleted successfully' 
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to delete report' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to delete report' 
+    });
   }
 };
 
+/**
+ * GET AVAILABLE MODELS
+ */
 exports.getAvailableModels = (req, res) => {
   try {
-    const models = huggingFaceService.getAvailableModels();
-    res.status(200).json({ success: true, count: models.length, data: models });
+    // Add method to huggingface service if needed
+    const models = [
+      'Qwen/Qwen2.5-7B-Instruct',
+      'mistralai/Mistral-7B-Instruct-v0.2',
+      'microsoft/Phi-3-mini-4k-instruct'
+    ];
+    
+    res.status(200).json({ 
+      success: true, 
+      count: models.length, 
+      data: models 
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to get models' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to get models' 
+    });
   }
 };
