@@ -12,65 +12,123 @@ class HuggingFaceService {
     }
   }
 
-  async generateReport(prompt, model = 'meta-llama/Llama-3.2-3B-Instruct') {
-    try {
-      console.log(`🤖 Calling Hugging Face: ${model}`);
+//   async generateReport(prompt, model = 'microsoft/Phi-3-mini-4k-instruct') {
+//     try {
+//       console.log(`🤖 Calling Hugging Face: ${model}`);
       
-      const response = await axios.post(
-        `${this.baseURL}/${model}`,
-        {
-          inputs: prompt,
-          parameters: {
-            max_new_tokens: 1000,
-            temperature: 0.7,
-            top_p: 0.9,
-            return_full_text: false,
-          },
+//       const response = await axios.post(
+//         `${this.baseURL}/${model}`,
+//         {
+//           inputs: prompt,
+//           parameters: {
+//             max_new_tokens: 300,
+//             temperature: 0.7,
+//             top_p: 0.9,
+//             return_full_text: false,
+//           },
+//         },
+//         {
+//           headers: {
+//             'Authorization': `Bearer ${this.apiKey}`,
+//             'Content-Type': 'application/json',
+//           },
+//           timeout: 30000,
+//         }
+//       );
+//       console.log("🔎 Hugging Face raw response:", response.data);
+
+//       const text = 
+//         response.data[0]?.generated_text || 
+//         response.data.generated_text || 
+//         'No summary generated';
+
+//       console.log('✅ Report generated successfully');
+//       return text;
+      
+//     } catch (error) {
+//       console.error('❌ Hugging Face Error:', error.message);
+      
+//       // Fallback: Return a formatted version of the input
+//       if (!text || text.includes('Summary of completed tasks')) {
+//   console.warn('⚠️ Fallback detected or empty response');
+//   throw new Error('LLM returned fallback or empty output');
+// }
+
+// return text;
+//     }
+//   }
+      async generateReport(prompt, model = 'meta-llama/Llama-3.2-3B-Instruct') {
+  try {
+    console.log(`🤖 Calling Hugging Face model: ${model}`);
+    console.log('🧠 Prompt:', prompt);
+
+    const response = await axios.post(
+      `${this.baseURL}/${model}`,
+      {
+        inputs: prompt,
+        parameters: {
+          max_new_tokens: 300, // faster
+          temperature: 0.7,
+          top_p: 0.9,
+          return_full_text: false,
         },
-        {
-          headers: {
-            'Authorization': `Bearer ${this.apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          timeout: 60000,
-        }
-      );
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000,
+      }
+    );
 
-      const text = 
-        response.data[0]?.generated_text || 
-        response.data.generated_text || 
-        'No summary generated';
+    console.log('🔎 Hugging Face raw response:', response.data);
 
-      console.log('✅ Report generated successfully');
-      return text;
-      
-    } catch (error) {
-      console.error('❌ Hugging Face Error:', error.message);
-      
-      // Fallback: Return a formatted version of the input
-      console.log('📝 Using fallback formatting...');
-      const fallbackText = `
-# Daily Status Report
+    // ✅ Always define text first
+    const text =
+      response.data[0]?.generated_text ||
+      response.data.generated_text ||
+      '';
 
-## Accomplishments
-- Summary of completed tasks
-
+    if (!text) {
+      console.warn('⚠️ Empty response from LLM, using fallback');
+      return `
 ## In Progress
 - Current work items
 
-## Blockers
-- Issues blocking progress
+## Completed
+- Summary of completed tasks
 
-## Additional Notes
-- Other relevant information
+## Support
+- Help received or time saved
 
 ---
 *Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}*
       `.trim();
-      
-      return fallbackText;
     }
+
+    console.log('✅ Report generated successfully');
+    return text;
+  } catch (error) {
+    console.error('❌ Hugging Face Error:', error.message);
+
+    // Fallback if API fails
+    return `
+## In Progress
+- Current work items
+
+## Completed
+- Summary of completed tasks
+
+## Support
+- Help received or time saved
+
+---
+*Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}*
+    `.trim();
   }
+}
+
 
   getAvailableModels() {
     return [

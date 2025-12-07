@@ -1,56 +1,147 @@
+// src/controllers/reportController.js
+
 const Report = require('../models/Report');
 const huggingFaceService = require('../services/huggingface');
 const { startOfDay, endOfDay } = require('date-fns');
 
 /**
- * CREATE: Generate and save new report
+ * ============================================
+ * FORMAT ONLY (No Save) - FOR PREVIEW
+ * ============================================
+ * POST /api/reports/format
  * 
- * Flow:
- * 1. Receive raw speech inputs from frontend
- * 2. Build prompt for AI
- * 3. Call Hugging Face to format text professionally
- * 4. Save to MongoDB
- * 5. Return formatted report to frontend
- * 
- * POST /api/reports
+ * Purpose: User speaks → AI formats → Show preview
+ * Does NOT save to database yet!
  */
-exports.createReport = async (req, res) => {
+exports.formatReportOnly = async (req, res) => {
   try {
-    console.log('Creating new report...');
+    console.log('🎨 Formatting report (PREVIEW ONLY - NOT SAVING)...');
     
-    // Get data from request body
-    const { rawInputs, llmModel, title } = req.body;
+    const { rawInputs, llmModel } = req.body;
 
-    // Validation: Must have at least one input
-    if (
-      !rawInputs ||
-      (!rawInputs.accomplishments &&
-       !rawInputs.inProgress &&
-       !rawInputs.blockers &&
-       !rawInputs.notes)
-    ) {
+    // Validation
+    if (!rawInputs || !rawInputs.accomplishments) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide at least one input field (accomplishments, inProgress, blockers, or notes)',
+        message: 'Please provide at least one input field',
       });
     }
 
-    console.log(' Raw inputs received:', {
-      accomplishments: rawInputs.accomplishments ? '✓' : '✗',
-      inProgress: rawInputs.inProgress ? '✓' : '✗',
-      blockers: rawInputs.blockers ? '✓' : '✗',
-      notes: rawInputs.notes ? '✓' : '✗',
+    console.log('📋 Raw input:', rawInputs.accomplishments.substring(0, 50) + '...');
+
+    // Build prompt for AI
+    const prompt = `
+You are an AI assistant formatting daily IT stand-up updates.
+
+Sections required:
+- In Progress: tasks currently being worked on
+- Completed: tasks finished or from previous days  
+- Support: help received, time saved (mention minutes/hours)
+
+Output format:
+## In Progress
+- bullet points
+
+## Completed
+- bullet points
+
+## Support
+- bullet points
+
+Raw input:
+Accomplishments: ${rawInputs.accomplishments}
+`.trim();
+
+    console.log('🤖 Sending to AI for formatting...');
+
+    // Call Hugging Face to format
+    const formattedReport = await huggingFaceService.generateReport(
+      prompt,
+      llmModel || 'meta-llama/Llama-3.2-3B-Instruct'
+    );
+
+    // Extract sections
+    const extractSection = (text, sectionName) => {
+      const regex = new RegExp(`## ${sectionName}\\s*([\\s\\S]*?)(?=##|$)`, "i");
+      const match = text.match(regex);
+      return match ? match[1].trim() : "";
+    };
+
+    const parsedSections = {
+      inProgress: extractSection(formattedReport, "In Progress"),
+      completed: extractSection(formattedReport, "Completed"),
+      support: extractSection(formattedReport, "Support"),
+    };
+
+    console.log('✅ Formatting complete (NOT SAVED TO DATABASE)');
+
+    // Return formatted data WITHOUT saving to MongoDB
+    res.status(200).json({
+      success: true,
+      message: 'Report formatted successfully (preview only)',
+      formattedReport,
+      parsedSections,
+    });
+    
+  } catch (error) {
+    console.error('❌ Error formatting report:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to format report',
+    });
+  }
+};
+
+/**
+ * ============================================
+ * CREATE AND SAVE TO DATABASE
+ * ============================================
+ * POST /api/reports
+ * 
+ * Purpose: After user approves preview, save to database
+ * This ACTUALLY saves to MongoDB
+ */
+exports.createReport = async (req, res) => {
+  try {
+    console.log('💾 Creating and SAVING report to database...');
+    
+    // Get data from request body
+    const { rawInputs, llmModel, title, parsedSections } = req.body;
+
+    // Validation: Must have at least one input
+    if (!rawInputs || !rawInputs.accomplishments) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide at least one input field',
+      });
+    }
+
+    console.log('📋 Raw inputs received:', {
+      accomplishments: rawInputs.accomplishments ? '✓' : '✗'
     });
 
     // Build prompt for AI
-    const prompt = `You are a professional assistant. Generate a concise, well-formatted daily status report based on these updates. Use proper grammar, complete sentences, and professional language.
+    const prompt = `
+You are an AI assistant formatting daily IT stand-up updates.
 
-${rawInputs.accomplishments ? `Accomplishments:\n${rawInputs.accomplishments}\n\n` : ''}
-${rawInputs.inProgress ? `In Progress:\n${rawInputs.inProgress}\n\n` : ''}
-${rawInputs.blockers ? `Blockers:\n${rawInputs.blockers}\n\n` : ''}
-${rawInputs.notes ? `Additional Notes:\n${rawInputs.notes}\n\n` : ''}
+Sections required:
+- In Progress: tasks currently being worked on
+- Completed: tasks finished or from previous days
+- Support: help received, time saved (mention minutes/hours)
 
-Create a professional status report with clear sections and bullet points. Make the language polished and concise.`;
+Output format:
+## In Progress
+- bullet points
+
+## Completed
+- bullet points
+
+## Support
+- bullet points
+
+Raw input:
+Accomplishments: ${rawInputs.accomplishments}
+`.trim();
 
     console.log('🤖 Sending to AI for formatting...');
 
@@ -60,29 +151,46 @@ Create a professional status report with clear sections and bullet points. Make 
       llmModel || 'meta-llama/Llama-3.2-3B-Instruct'
     );
 
+    // Parse formatted report into structured fields
+    const extractSection = (text, sectionName) => {
+      const regex = new RegExp(`## ${sectionName}\\s*([\\s\\S]*?)(?=##|$)`, "i");
+      const match = text.match(regex);
+      return match ? match[1].trim() : "";
+    };
+
+    const sections = parsedSections || {
+      inProgress: extractSection(formattedReport, "In Progress"),
+      completed: extractSection(formattedReport, "Completed"),
+      support: extractSection(formattedReport, "Support"),
+    };
+
     console.log('✅ AI formatting complete');
 
     // Save to MongoDB
     const report = new Report({
       rawInputs,
       formattedReport,
+      inProgress: sections.inProgress,
+      completed: sections.completed,
+      support: sections.support,
       llmModel: llmModel || 'meta-llama/Llama-3.2-3B-Instruct',
       title: title || `Daily Report - ${new Date().toLocaleDateString()}`,
     });
 
     await report.save();
 
-    console.log('💾 Saved to database:', report._id);
+    console.log('💾 SAVED TO DATABASE:', report._id);
 
     // Send response to frontend
     res.status(201).json({
       success: true,
-      message: 'Report created successfully',
+      message: 'Report created and saved successfully',
+      formattedReport, 
       data: report,
     });
     
   } catch (error) {
-    console.error(' Error creating report:', error);
+    console.error('❌ Error creating report:', error);
     res.status(500).json({
       success: false,
       message: error.message || 'Failed to create report',
@@ -92,21 +200,18 @@ Create a professional status report with clear sections and bullet points. Make 
 };
 
 /**
- * READ: Get all reports
- * 
- * Returns all reports sorted by newest first
- * Limits to 100 most recent reports
- * 
+ * ============================================
+ * GET ALL REPORTS
+ * ============================================
  * GET /api/reports
  */
 exports.getAllReports = async (req, res) => {
   try {
-    console.log('Fetching all reports...');
+    console.log('📚 Fetching all reports...');
     
-    // Get all reports, sorted by creation date (newest first)
     const reports = await Report.find()
       .sort({ createdAt: -1 })
-      .limit(100); // Limit to last 100 reports for performance
+      .limit(100);
 
     console.log(`✅ Found ${reports.length} reports`);
 
@@ -117,7 +222,7 @@ exports.getAllReports = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Error fetching reports:', error);
+    console.error('❌ Error fetching reports:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch reports',
@@ -126,15 +231,16 @@ exports.getAllReports = async (req, res) => {
 };
 
 /**
- * READ: Get single report by ID
- * 
+ * ============================================
+ * GET SINGLE REPORT BY ID
+ * ============================================
  * GET /api/reports/:id
  */
 exports.getReportById = async (req, res) => {
   try {
     const { id } = req.params;
     
-    console.log(` Fetching report: ${id}`);
+    console.log(`🔍 Fetching report: ${id}`);
 
     const report = await Report.findById(id);
 
@@ -153,7 +259,7 @@ exports.getReportById = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Error fetching report:', error);
+    console.error('❌ Error fetching report:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch report',
@@ -162,22 +268,15 @@ exports.getReportById = async (req, res) => {
 };
 
 /**
- * READ: Get reports by date range
- * 
- * This is for the DOWNLOAD feature!
- * Filter reports between two dates
- * 
- * Query params:
- * - startDate: YYYY-MM-DD (e.g., 2024-01-01)
- * - endDate: YYYY-MM-DD (e.g., 2024-01-31)
- * 
+ * ============================================
+ * GET REPORTS BY DATE RANGE
+ * ============================================
  * GET /api/reports/range?startDate=2024-01-01&endDate=2024-01-31
  */
 exports.getReportsByDateRange = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
 
-    // Validation
     if (!startDate || !endDate) {
       return res.status(400).json({
         success: false,
@@ -186,21 +285,19 @@ exports.getReportsByDateRange = async (req, res) => {
       });
     }
 
-    // Convert to Date objects and include full day
     const start = startOfDay(new Date(startDate));
     const end = endOfDay(new Date(endDate));
 
-    console.log(`Fetching reports from ${start.toLocaleDateString()} to ${end.toLocaleDateString()}`);
+    console.log(`📅 Fetching reports from ${start.toLocaleDateString()} to ${end.toLocaleDateString()}`);
 
-    // Query database for reports in date range
     const reports = await Report.find({
       createdAt: {
-        $gte: start,  // Greater than or equal to start date
-        $lte: end,    // Less than or equal to end date
+        $gte: start,
+        $lte: end,
       },
     }).sort({ createdAt: -1 });
 
-    console.log(`Found ${reports.length} reports in date range`);
+    console.log(`✅ Found ${reports.length} reports in date range`);
 
     res.status(200).json({
       success: true,
@@ -213,7 +310,7 @@ exports.getReportsByDateRange = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Error fetching reports by date range:', error);
+    console.error('❌ Error fetching reports by date range:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch reports',
@@ -222,15 +319,9 @@ exports.getReportsByDateRange = async (req, res) => {
 };
 
 /**
- * UPDATE: Update an existing report
- * 
- * Can update any field:
- * - title
- * - rawInputs
- * - formattedReport
- * - status
- * - tags
- * 
+ * ============================================
+ * UPDATE REPORT
+ * ============================================
  * PUT /api/reports/:id
  */
 exports.updateReportById = async (req, res) => {
@@ -244,8 +335,8 @@ exports.updateReportById = async (req, res) => {
       id,
       updates,
       {
-        new: true,           // Return updated document
-        runValidators: true, // Validate updated data
+        new: true,
+        runValidators: true,
       }
     );
 
@@ -265,7 +356,7 @@ exports.updateReportById = async (req, res) => {
     });
     
   } catch (error) {
-    console.error(' Error updating report:', error);
+    console.error('❌ Error updating report:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to update report',
@@ -274,10 +365,9 @@ exports.updateReportById = async (req, res) => {
 };
 
 /**
- * DELETE: Delete a report
- * 
- * Permanently removes report from database
- * 
+ * ============================================
+ * DELETE REPORT
+ * ============================================
  * DELETE /api/reports/:id
  */
 exports.deleteReportById = async (req, res) => {
@@ -295,7 +385,7 @@ exports.deleteReportById = async (req, res) => {
       });
     }
 
-    console.log('Report deleted successfully');
+    console.log('✅ Report deleted successfully');
 
     res.status(200).json({
       success: true,
@@ -307,7 +397,7 @@ exports.deleteReportById = async (req, res) => {
     });
     
   } catch (error) {
-    console.error(' Error deleting report:', error);
+    console.error('❌ Error deleting report:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to delete report',
@@ -316,10 +406,9 @@ exports.deleteReportById = async (req, res) => {
 };
 
 /**
- * EXTRA: Get available LLM models
- * 
- * Returns list of FREE Hugging Face models
- * 
+ * ============================================
+ * GET AVAILABLE AI MODELS
+ * ============================================
  * GET /api/reports/models
  */
 exports.getAvailableModels = (req, res) => {
@@ -332,7 +421,7 @@ exports.getAvailableModels = (req, res) => {
       data: models,
     });
   } catch (error) {
-    console.error('Error getting models:', error);
+    console.error('❌ Error getting models:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to get models',

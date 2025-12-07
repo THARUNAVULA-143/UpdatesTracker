@@ -19,26 +19,10 @@ const reportSchema = new mongoose.Schema(
     },
 
     rawInputs: {
-      accomplishments: {
-        type: String,
-        default: '',
-        trim: true,
-      },
-      inProgress: {
-        type: String,
-        default: '',
-        trim: true,
-      },
-      blockers: {
-        type: String,
-        default: '',
-        trim: true,
-      },
-      notes: {
-        type: String,
-        default: '',
-        trim: true,
-      },
+      accomplishments: { type: String, default: '', trim: true },
+      inProgress: { type: String, default: '', trim: true },
+      blockers: { type: String, default: '', trim: true },
+      notes: { type: String, default: '', trim: true },
     },
 
     formattedReport: {
@@ -46,6 +30,11 @@ const reportSchema = new mongoose.Schema(
       required: [true, 'Formatted report is required'],
       trim: true,
     },
+
+    // ✅ New structured fields
+    inProgress: { type: String, default: '', trim: true },
+    completed: { type: String, default: '', trim: true },
+    support: { type: String, default: '', trim: true },
 
     llmModel: {
       type: String,

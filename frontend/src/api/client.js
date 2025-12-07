@@ -1,84 +1,116 @@
-import axios from 'axios'
+// src/api/client.js
 
-const BASE_URL = 'http://localhost:5000/api'
+import axios from 'axios';
 
-const axiosInstance = axios.create({
-  baseURL: BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-})
+const API_BASE_URL = 'http://localhost:5000/api';
+
+// Error handler
+const handleError = (error) => {
+  if (error.response) {
+    throw new Error(error.response.data.message || 'Server error');
+  } else if (error.request) {
+    throw new Error('No response from server');
+  } else {
+    throw new Error(error.message);
+  }
+};
 
 export const apiClient = {
-  // Create a new report
-  createReport: async (data) => {
+  /**
+   * Format report with AI (PREVIEW ONLY - does not save)
+   */
+  formatReport: async (reportData) => {
     try {
-      const response = await axiosInstance.post('/reports', data)
-      return response.data
+      const response = await axios.post(`${API_BASE_URL}/reports/format`, reportData);
+      return response.data;
     } catch (error) {
-      throw new Error(error.response?.data?.message || error.message)
+      throw handleError(error);
     }
   },
 
-  // Get all reports
+  /**
+   * Create and save report to database
+   */
+  createReport: async (reportData) => {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/reports`, reportData);
+      return response.data;
+    } catch (error) {
+      throw handleError(error);
+    }
+  },
+
+  /**
+   * Get all reports
+   */
   getAllReports: async () => {
     try {
-      const response = await axiosInstance.get('/reports')
-      return response.data
+      const response = await axios.get(`${API_BASE_URL}/reports`);
+      return response.data;
     } catch (error) {
-      throw new Error(error.response?.data?.message || error.message)
+      throw handleError(error);
     }
   },
 
-  // Get single report
+  /**
+   * Get single report by ID
+   */
   getReportById: async (id) => {
     try {
-      const response = await axiosInstance.get(`/reports/${id}`)
-      return response.data
+      const response = await axios.get(`${API_BASE_URL}/reports/${id}`);
+      return response.data;
     } catch (error) {
-      throw new Error(error.response?.data?.message || error.message)
+      throw handleError(error);
     }
   },
 
-  // Get reports by date range
+  /**
+   * Get reports by date range
+   */
   getReportsByDateRange: async (startDate, endDate) => {
     try {
-      const response = await axiosInstance.get('/reports/range', {
-        params: { startDate, endDate },
-      })
-      return response.data
+      const response = await axios.get(`${API_BASE_URL}/reports/range`, {
+        params: { startDate, endDate }
+      });
+      return response.data;
     } catch (error) {
-      throw new Error(error.response?.data?.message || error.message)
+      throw handleError(error);
     }
   },
 
-  // Update report
-  updateReport: async (id, data) => {
+  /**
+   * Update report
+   */
+  updateReport: async (id, updates) => {
     try {
-      const response = await axiosInstance.put(`/reports/${id}`, data)
-      return response.data
+      const response = await axios.put(`${API_BASE_URL}/reports/${id}`, updates);
+      return response.data;
     } catch (error) {
-      throw new Error(error.response?.data?.message || error.message)
+      throw handleError(error);
     }
   },
 
-  // Delete report
+  /**
+   * Delete report
+   */
   deleteReport: async (id) => {
     try {
-      const response = await axiosInstance.delete(`/reports/${id}`)
-      return response.data
+      const response = await axios.delete(`${API_BASE_URL}/reports/${id}`);
+      return response.data;
     } catch (error) {
-      throw new Error(error.response?.data?.message || error.message)
+      throw handleError(error);
     }
   },
 
-  // Get available AI models
-  getAvailableModels: async () => {
+  /**
+   * Get available AI models
+   */
+  getModels: async () => {
     try {
-      const response = await axiosInstance.get('/reports/models')
-      return response.data
+      const response = await axios.get(`${API_BASE_URL}/reports/models`);
+      return response.data;
     } catch (error) {
-      throw new Error(error.response?.data?.message || error.message)
+      throw handleError(error);
     }
   },
-}
+};

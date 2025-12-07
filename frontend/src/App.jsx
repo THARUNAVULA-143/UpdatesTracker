@@ -1,18 +1,21 @@
 // src/App.jsx
 
 import { useState, useRef, useEffect } from 'react';
-import { Mic, MicOff } from 'lucide-react';
+import { Mic, MicOff, Save, Edit2 } from 'lucide-react';
 import { apiClient as reportAPI } from './api/client.js';
 import { format } from 'date-fns';
 
 function App() {
   // State management
-  const [step, setStep] = useState(1); // 1 = Recording, 2 = Results
+  const [step, setStep] = useState(1); // 1 = Recording, 2 = Preview, 3 = Saved
   const [isRecording, setIsRecording] = useState(false);
   const [spokenText, setSpokenText] = useState('');
   const [loading, setLoading] = useState(false);
-  const [formattedData, setFormattedData] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [previewData, setPreviewData] = useState(null); // AI formatted preview
+  const [savedReports, setSavedReports] = useState([]); // All saved reports
   const [userName] = useState('Tharun');
+  const [serialNumber, setSerialNumber] = useState(1);
   
   const recognitionRef = useRef(null);
   const [isSupported, setIsSupported] = useState(true);
@@ -28,15 +31,12 @@ function App() {
       recognitionRef.current.lang = 'en-US';
       
       recognitionRef.current.onresult = (event) => {
-        let interimTranscript = '';
         let finalTranscript = '';
         
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const transcript = event.results[i][0].transcript;
           if (event.results[i].isFinal) {
             finalTranscript += transcript + ' ';
-          } else {
-            interimTranscript += transcript;
           }
         }
         
@@ -83,7 +83,21 @@ function App() {
     }
   };
 
-  // Handle Next button
+  // Extract section from formatted report
+  const extractSection = (text, sectionName) => {
+    const regex = new RegExp(`## ${sectionName}\\s*([\\s\\S]*?)(?=##|$)`, "i");
+    const match = text.match(regex);
+    return match ? match[1].trim() : "";
+  };
+
+  // Parse formatted report into sections
+  const parseFormattedReport = (text) => ({
+    inProgress: extractSection(text, "In Progress"),
+    completed: extractSection(text, "Completed"),
+    support: extractSection(text, "Support"),
+  });
+
+  // Handle Next button - Get AI preview (DON'T save yet)
   const handleNext = async () => {
     if (!spokenText.trim()) {
       alert('Please speak something or type text before proceeding');
@@ -93,60 +107,86 @@ function App() {
     setLoading(true);
 
     try {
-      // Create report with AI formatting
-      const response = await reportAPI.createReport({
+      // Call backend to format with AI
+      const response = await reportAPI.formatReport({
         rawInputs: {
           accomplishments: spokenText,
           inProgress: '',
           blockers: '',
           notes: ''
         },
-        llmModel: 'meta-llama/Llama-3.2-3B-Instruct',
         title: `Daily Report - ${format(new Date(), 'MMM dd, yyyy')}`,
       });
+      
+      console.log("✅ AI Formatting response:", response);
 
-      // Parse the formatted report into structured data
-      const formatted = parseFormattedReport(response.data.formattedReport);
-      setFormattedData({
-        ...formatted,
+      if (!response.formattedReport) {
+        throw new Error("No formattedReport returned from backend");
+      }
+
+      // Parse the formatted report
+      const formatted = parseFormattedReport(response.formattedReport);
+
+      // Set preview data (not saved yet!)
+      setPreviewData({
+        serialNumber: serialNumber,
         date: new Date(),
-        rawText: spokenText
+        inProgress: formatted.inProgress || "- Current work items",
+        completed: formatted.completed || "- Summary of completed tasks",
+        support: formatted.support || "- Help received or time saved",
+        rawText: spokenText,
+        fullFormattedReport: response.formattedReport
       });
       
-      setStep(2);
+      setStep(2); // Go to preview step
     } catch (error) {
-      console.error('Error creating report:', error);
+      console.error('❌ Error formatting report:', error);
       alert('❌ Failed to process report: ' + (error.message || 'Unknown error'));
     } finally {
       setLoading(false);
     }
   };
 
-  // Parse AI formatted report into structured data
-  const parseFormattedReport = (text) => {
-    // Simple parsing - you can make this more sophisticated
-    return {
-      inProgress: extractSection(text, 'in progress', 'completed', 'support'),
-      completed: extractSection(text, 'completed', 'accomplishments', 'support'),
-      support: extractSection(text, 'support', 'blockers', 'notes')
-    };
+  // Handle Save button - Actually save to database
+  const handleSave = async () => {
+    if (!previewData) {
+      alert('No data to save');
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      // Here you would call your actual save endpoint
+      // For now, just add to local state
+      const newReport = {
+        id: Date.now(),
+        ...previewData,
+        savedAt: new Date()
+      };
+
+      setSavedReports(prev => [...prev, newReport]);
+      setSerialNumber(prev => prev + 1);
+      
+      alert('✅ Report saved successfully!');
+      
+      // Reset form
+      setStep(1);
+      setSpokenText('');
+      setPreviewData(null);
+      
+    } catch (error) {
+      console.error('❌ Error saving report:', error);
+      alert('❌ Failed to save report');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const extractSection = (text, ...keywords) => {
-    const lowerText = text.toLowerCase();
-    for (const keyword of keywords) {
-      const index = lowerText.indexOf(keyword);
-      if (index !== -1) {
-        const nextKeywordIndex = keywords.slice(1).reduce((acc, kw) => {
-          const idx = lowerText.indexOf(kw, index + 1);
-          return idx !== -1 && (acc === -1 || idx < acc) ? idx : acc;
-        }, -1);
-        
-        const endIndex = nextKeywordIndex !== -1 ? nextKeywordIndex : text.length;
-        return text.substring(index, endIndex).trim();
-      }
-    }
-    return '';
+  // Handle Edit - Go back and edit
+  const handleEdit = () => {
+    setStep(1);
+    // Keep spokenText so user can edit it
   };
 
   // Handle Cancel
@@ -158,7 +198,7 @@ function App() {
     } else {
       setStep(1);
       setSpokenText('');
-      setFormattedData(null);
+      setPreviewData(null);
     }
   };
 
@@ -167,16 +207,12 @@ function App() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-100 via-gray-200 to-gray-300 flex items-center justify-center p-6">
         <div className="w-full max-w-5xl">
-          {/* Welcome Header */}
           <div className="bg-gradient-to-r from-gray-400 to-gray-500 text-white px-8 py-4 rounded-t-2xl shadow-lg">
             <h1 className="text-2xl font-bold">Hello {userName}, Welcome back!..</h1>
           </div>
 
-          {/* Main Card */}
           <div className="bg-white rounded-b-2xl shadow-2xl p-8">
-            {/* Recording Status & Text Area */}
             <div className="flex items-start gap-4 mb-8">
-              {/* Text Input Area */}
               <div className="flex-1">
                 {isRecording && (
                   <div className="flex items-center gap-2 mb-2 text-red-600 animate-pulse">
@@ -193,7 +229,6 @@ function App() {
                 />
               </div>
 
-              {/* Microphone Button */}
               <div className="flex flex-col items-center">
                 <span className="text-sm font-semibold text-gray-700 mb-2">speak</span>
                 <button
@@ -213,7 +248,6 @@ function App() {
               </div>
             </div>
 
-            {/* Action Buttons */}
             <div className="flex justify-center gap-4">
               <button
                 onClick={handleNext}
@@ -242,35 +276,50 @@ function App() {
     );
   }
 
-  // Render Step 2: Results Table
+  // Render Step 2: Preview with Save Button
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-100 via-gray-200 to-gray-300 flex items-center justify-center p-6">
       <div className="w-full max-w-6xl">
-        {/* Welcome Header */}
         <div className="bg-gradient-to-r from-gray-400 to-gray-500 text-white px-8 py-4 rounded-t-2xl shadow-lg">
           <h1 className="text-2xl font-bold">Hello {userName}, Welcome back!..</h1>
         </div>
 
-        {/* Main Card */}
         <div className="bg-white rounded-b-2xl shadow-2xl p-8">
           {/* Info Box */}
-          <div className="bg-gray-100 rounded-xl p-4 mb-6 border-2 border-gray-300">
-            <p className="text-gray-700 text-center">
-              Your spoken input has been processed and formatted below
+          <div className="bg-blue-50 rounded-xl p-4 mb-6 border-2 border-blue-300">
+            <p className="text-gray-800 text-center font-semibold">
+              📋 Preview: Your spoken input has been processed and formatted below
+            </p>
+            <p className="text-gray-600 text-center text-sm mt-1">
+              Review the data and click "Save" to store it in the database
             </p>
           </div>
 
           {/* Action Buttons */}
           <div className="flex justify-center gap-4 mb-8">
             <button
-              onClick={() => {
-                setStep(1);
-                setSpokenText('');
-                setFormattedData(null);
-              }}
-              className="px-12 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 transition-all transform hover:scale-105 shadow-lg"
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-2 px-12 py-3 bg-green-600 text-white rounded-full font-semibold hover:bg-green-700 disabled:bg-gray-400 transition-all transform hover:scale-105 shadow-lg"
             >
-              New Report
+              {saving ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-5 h-5" />
+                  Save to Database
+                </>
+              )}
+            </button>
+            <button
+              onClick={handleEdit}
+              className="flex items-center gap-2 px-12 py-3 bg-yellow-500 text-white rounded-full font-semibold hover:bg-yellow-600 transition-all transform hover:scale-105 shadow-lg"
+            >
+              <Edit2 className="w-5 h-5" />
+              Edit
             </button>
             <button
               onClick={handleCancel}
@@ -280,7 +329,7 @@ function App() {
             </button>
           </div>
 
-          {/* Results Table */}
+          {/* Preview Table */}
           <div className="overflow-x-auto">
             <table className="w-full border-collapse">
               <thead>
@@ -293,35 +342,21 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {/* Empty Rows */}
-                <tr className="bg-white hover:bg-gray-50 transition-colors">
-                  <td className="border-2 border-gray-400 px-6 py-6"></td>
-                  <td className="border-2 border-gray-400 px-6 py-6"></td>
-                  <td className="border-2 border-gray-400 px-6 py-6"></td>
-                  <td className="border-2 border-gray-400 px-6 py-6"></td>
-                  <td className="border-2 border-gray-400 px-6 py-6"></td>
-                </tr>
-                <tr className="bg-white hover:bg-gray-50 transition-colors">
-                  <td className="border-2 border-gray-400 px-6 py-6"></td>
-                  <td className="border-2 border-gray-400 px-6 py-6"></td>
-                  <td className="border-2 border-gray-400 px-6 py-6"></td>
-                  <td className="border-2 border-gray-400 px-6 py-6"></td>
-                  <td className="border-2 border-gray-400 px-6 py-6"></td>
-                </tr>
-                {/* Active Row with Data */}
-                <tr className="bg-white hover:bg-blue-50 transition-colors border-4 border-blue-500 animate-pulse">
-                  <td className="border-2 border-blue-500 px-6 py-6 font-semibold text-gray-800">1</td>
+                <tr className="bg-blue-50 hover:bg-blue-100 transition-colors border-4 border-blue-500">
                   <td className="border-2 border-blue-500 px-6 py-6 font-semibold text-gray-800">
-                    {formattedData && format(formattedData.date, 'MMM dd, yyyy')}
+                    {previewData?.serialNumber}
                   </td>
-                  <td className="border-2 border-blue-500 px-6 py-6 text-gray-700">
-                    {formattedData?.inProgress || formattedData?.rawText.substring(0, 50) + '...'}
+                  <td className="border-2 border-blue-500 px-6 py-6 font-semibold text-gray-800">
+                    {previewData && format(previewData.date, 'MMM dd, yyyy')}
                   </td>
-                  <td className="border-2 border-blue-500 px-6 py-6 text-gray-700">
-                    {formattedData?.completed || 'Processing...'}
+                  <td className="border-2 border-blue-500 px-6 py-6 text-gray-700 whitespace-pre-wrap">
+                    {previewData?.inProgress}
                   </td>
-                  <td className="border-2 border-blue-500 px-6 py-6 text-gray-700">
-                    {formattedData?.support || 'N/A'}
+                  <td className="border-2 border-blue-500 px-6 py-6 text-gray-700 whitespace-pre-wrap">
+                    {previewData?.completed}
+                  </td>
+                  <td className="border-2 border-blue-500 px-6 py-6 text-gray-700 whitespace-pre-wrap">
+                    {previewData?.support}
                   </td>
                 </tr>
               </tbody>
@@ -329,9 +364,23 @@ function App() {
           </div>
 
           {/* Legend */}
-          <div className="mt-6 text-center text-sm text-gray-600">
-            <p>✨ AI-powered formatting applied to your spoken input</p>
+          <div className="mt-6 text-center">
+            <p className="text-sm text-gray-600">
+              ✨ AI-powered formatting applied to your spoken input
+            </p>
+            <p className="text-xs text-gray-500 mt-2">
+              Generated on {previewData && format(previewData.date, 'PPP p')}
+            </p>
           </div>
+
+          {/* Show saved reports count */}
+          {savedReports.length > 0 && (
+            <div className="mt-6 text-center">
+              <p className="text-sm font-semibold text-green-600">
+                ✅ {savedReports.length} report{savedReports.length > 1 ? 's' : ''} saved today
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -19,27 +19,27 @@ const connectDatabase = async () => {
     console.log(`🌐 Host: ${connection.connection.host}`);
 
   } catch (error) {
-    console.error('❌ MongoDB Connection Failed:');
+    console.error('MongoDB Connection Failed:');
     console.error(error.message);
     process.exit(1);
   }
 };
 
 mongoose.connection.on('connected', () => {
-  console.log('Mongoose connected to MongoDB Atlas');
+  console.log('Database connected to MongoDB Atlas');
 });
 
 mongoose.connection.on('disconnected', () => {
-  console.log('Mongoose disconnected');
+  console.log('Database disconnected');
 });
 
 mongoose.connection.on('error', (error) => {
-  console.error('Mongoose error:', error);
+  console.error('Database error:', error);
 });
 
 process.on('SIGINT', async () => {
   await mongoose.connection.close();
-  console.log('MongoDB connection closed');
+  console.log('Datebase connection closed');
   process.exit(0);
 });
 

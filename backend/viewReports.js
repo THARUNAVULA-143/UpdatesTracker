@@ -51,7 +51,7 @@ const mongoose = require('mongoose');
       console.log(`✅ Status:        ${doc.status}`);
       console.log(`🕐 Created:       ${new Date(doc.createdAt).toLocaleString()}`);
       console.log(`🔄 Updated:       ${new Date(doc.updatedAt).toLocaleString()}`);
-      console.log(`🤖 LLM Model:     ${doc.llmModel}`);
+     
       
       console.log(`\n📥 Raw Inputs:`);
       console.log(`   • Accomplishments: ${doc.rawInputs.accomplishments}`);
