@@ -12,7 +12,7 @@ class HuggingFaceService {
     }
   }
 
-  async generateReport(prompt, model = 'meta-llama/Llama-3.2-3B-Instruct') {
+  async generateReport(prompt, model = 'deepseek-ai/DeepSeek-V3.2') {
     try {
       console.log(`🤖 Calling Hugging Face model: ${model}`);
       console.log('📝 Prompt length:', prompt.length, 'characters');
@@ -180,40 +180,7 @@ ${support.length > 0 ? support.join('\n') : '- No support mentioned'}`;
     return result;
   }
 
-  getAvailableModels() {
-    return [
-      {
-        id: 'meta-llama/Llama-3.2-3B-Instruct',
-        name: 'Llama 3.2 3B',
-        description: 'Best balance - fast & smart (Recommended)',
-        speed: 'fast',
-      },
-      {
-        id: 'meta-llama/Llama-3.2-1B-Instruct',
-        name: 'Llama 3.2 1B',
-        description: 'Ultra fast, lightweight',
-        speed: 'very-fast',
-      },
-      {
-        id: 'microsoft/Phi-3-mini-4k-instruct',
-        name: 'Phi-3 Mini',
-        description: 'Microsoft model, very quick',
-        speed: 'very-fast',
-      },
-      {
-        id: 'mistralai/Mistral-7B-Instruct-v0.3',
-        name: 'Mistral 7B',
-        description: 'High quality, slower',
-        speed: 'medium',
-      },
-      {
-        id: 'google/gemma-2-2b-it',
-        name: 'Gemma 2 2B',
-        description: 'Google model, efficient',
-        speed: 'fast',
-      },
-    ];
-  }
+  
 }
 
 module.exports = new HuggingFaceService();
