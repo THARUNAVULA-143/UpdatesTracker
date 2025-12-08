@@ -5,61 +5,92 @@ const huggingFaceService = require('../services/huggingface');
 const { startOfDay, endOfDay } = require('date-fns');
 
 /**
- * ✅ IMPROVED PROMPT BUILDER
+ * ✅ PROFESSIONAL IT STANDUP PROMPT - NEVER MISSES ANYTHING
  */
 function buildPrompt(rawInput) {
-  return `You are a professional IT standup report formatter.
+  return `You are an expert IT standup assistant. Your job is to help IT professionals format their daily updates for managers.
 
-**Your task:** Transform raw input into a clean, professional standup update with three sections.
+**CRITICAL RULES - NEVER BREAK THESE:**
+1. EXTRACT EVERY SINGLE TICKET NUMBER mentioned (Task 117, LAA-107, LAA-90, JIRA-123, etc.) - Missing even ONE ticket is unacceptable
+2. PRESERVE EXACT TIME EXPRESSIONS - If user says "more than 20 min", write "More than 20 minutes" (NEVER change to just "20 minutes")
+3. If user says "will test", "going to work on", "plan to do" → Put in "In Progress"
+4. If user says "done", "completed", "finished", "updated" → Put in "Completed"
+5. Fix spelling/grammar but keep ALL information
+6. Group related actions together in one bullet
+7. If no support mentioned, write "None"
 
-**Input:** ${rawInput}
+**Common IT Terms to Understand:**
+- "test ticket 117" = working on testing Task 117 (In Progress)
+- "done with LAA-107" = completed LAA-107 (Completed)
+- "updated test cases in Jira" = completed action (Completed)
+- "support for 30 min" = received 30 minutes of help
+- "more than X minutes" = preserve "more than" phrase exactly
+- "creating test issue on board" = Jira/test management work (Completed)
 
-**Instructions:**
-1. Extract ALL tasks mentioned - never skip any task
-2. Categorize into: Completed (past tense), In Progress (present tense), Support (time only)
-3. Fix grammar and spelling but keep all original information intact
-4. Use exact numbers - never change "2.5" to "5" or round anything
-5. If a section is truly empty, write "None"
+**Input from IT professional:**
+${rawInput}
 
-**Format your response EXACTLY like this:**
+**Your task:**
+Parse the input and format it professionally. Fix spelling errors like:
+- "createing" → "creating"
+- "jira" → "Jira"
+- "toady" → "today"
+- "scenareos" → "scenarios"
+- "zypher" → "Zephyr"
+
+**Format EXACTLY like this:**
 
 ## Completed
-- [List completed tasks in past tense, or "None" if empty]
+- [List ALL completed tasks in past tense, or "None"]
 
 ## In Progress
-- [List ongoing tasks in present continuous, or "None" if empty]
+- [List ALL tasks planned/being worked on, or "None"]
 
 ## Support
-- [Time duration only, like "2.5 hours" or "30 minutes", or "None" if empty]
+- [EXACT time phrase from user, or "None"]
 
 **Example 1:**
-Input: "completed task 101, testing task 202, support 2.5 hrs"
+Input: "will test 117 today, done with LAA-107 and LAA-90, support more than 20 min, updated cases in jira"
 
 Output:
 ## Completed
-- Completed Task 101
+- Completed LAA-107 and LAA-90
+- Updated test cases in Jira
 
 ## In Progress
-- Currently testing Task 202
+- Will test Task 117 today
 
 ## Support
-- 2.5 hours
+- More than 20 minutes
 
 **Example 2:**
-Input: "working on task 55 and task 66, got help for 30 minutes"
+Input: "working on task 50 and task 51, finished task 49, got help for about 1 hour"
 
 Output:
 ## Completed
-None
+- Completed Task 49
 
 ## In Progress
-- Currently working on Task 55
-- Currently working on Task 66
+- Working on Task 50 and Task 51
 
 ## Support
-- 30 minutes
+- About 1 hour
 
-Now format this input following the exact format above: ${rawInput}`;
+**Example 3:**
+Input: "testing LAA-100, LAA-101, LAA-102, deployed to staging, 45 mins support"
+
+Output:
+## Completed
+- Deployed to staging
+
+## In Progress
+- Testing LAA-100, LAA-101, and LAA-102
+
+## Support
+- 45 minutes
+
+**NOW FORMAT THIS INPUT - REMEMBER: DO NOT MISS ANY TICKET NUMBERS OR CHANGE TIME EXPRESSIONS:**
+${rawInput}`;
 }
 
 /**
@@ -80,7 +111,6 @@ exports.formatReportOnly = async (req, res) => {
 
     console.log('📋 Raw input:', rawInputs.accomplishments);
     
-    // ✅ Use improved prompt
     const prompt = buildPrompt(rawInputs.accomplishments);
 
     console.log('🤖 Sending to AI for formatting...');
@@ -138,7 +168,6 @@ exports.createReport = async (req, res) => {
     
     console.log('📋 Raw input:', rawInputs.accomplishments);
 
-    // ✅ Use improved prompt
     const prompt = buildPrompt(rawInputs.accomplishments);
     
     console.log('🤖 Sending to AI for formatting...');
@@ -190,9 +219,6 @@ exports.createReport = async (req, res) => {
   }
 };
 
-/**
- * GET ALL REPORTS
- */
 exports.getAllReports = async (req, res) => {
   try {
     const reports = await Report.find().sort({ createdAt: -1 }).limit(100);
@@ -209,9 +235,6 @@ exports.getAllReports = async (req, res) => {
   }
 };
 
-/**
- * GET REPORT BY ID
- */
 exports.getReportById = async (req, res) => {
   try {
     const report = await Report.findById(req.params.id);
@@ -233,9 +256,6 @@ exports.getReportById = async (req, res) => {
   }
 };
 
-/**
- * GET REPORTS BY DATE RANGE
- */
 exports.getReportsByDateRange = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -267,9 +287,6 @@ exports.getReportsByDateRange = async (req, res) => {
   }
 };
 
-/**
- * UPDATE REPORT BY ID
- */
 exports.updateReportById = async (req, res) => {
   try {
     const report = await Report.findByIdAndUpdate(
@@ -298,9 +315,6 @@ exports.updateReportById = async (req, res) => {
   }
 };
 
-/**
- * DELETE REPORT BY ID
- */
 exports.deleteReportById = async (req, res) => {
   try {
     const report = await Report.findByIdAndDelete(req.params.id);
@@ -324,12 +338,8 @@ exports.deleteReportById = async (req, res) => {
   }
 };
 
-/**
- * GET AVAILABLE MODELS
- */
 exports.getAvailableModels = (req, res) => {
   try {
-    // Add method to huggingface service if needed
     const models = [
       'Qwen/Qwen2.5-7B-Instruct',
       'mistralai/Mistral-7B-Instruct-v0.2',

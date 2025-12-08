@@ -1,24 +1,48 @@
 // src/App.jsx
 
 import { useState, useRef, useEffect } from 'react';
-import { Mic, MicOff, Save, Edit2 } from 'lucide-react';
+import { Mic, MicOff, Save, Edit2, Trash2, ArrowRight, X, Check } from 'lucide-react';
 import { apiClient as reportAPI } from './api/client.js';
 import { format } from 'date-fns';
 
 function App() {
   // State management
-  const [step, setStep] = useState(1); // 1 = Recording, 2 = Preview, 3 = Saved
+  const [step, setStep] = useState(1);
   const [isRecording, setIsRecording] = useState(false);
   const [spokenText, setSpokenText] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [previewData, setPreviewData] = useState(null); // AI formatted preview
-  const [savedReports, setSavedReports] = useState([]); // All saved reports
+  const [previewData, setPreviewData] = useState(null);
+  const [savedReports, setSavedReports] = useState([]);
   const [userName] = useState('Tharun');
-  const [serialNumber, setSerialNumber] = useState(1);
+  const [editingReport, setEditingReport] = useState(null);
+  const [editForm, setEditForm] = useState({
+    completed: '',
+    inProgress: '',
+    support: ''
+  });
   
   const recognitionRef = useRef(null);
   const [isSupported, setIsSupported] = useState(true);
+
+  // Load saved reports on mount
+  useEffect(() => {
+    loadSavedReports();
+  }, []);
+
+  const loadSavedReports = async () => {
+    try {
+      const response = await reportAPI.getAllReports();
+      if (response.success && response.data) {
+        const sorted = response.data.sort((a, b) => 
+          new Date(b.createdAt) - new Date(a.createdAt)
+        );
+        setSavedReports(sorted);
+      }
+    } catch (error) {
+      console.error('Error loading reports:', error);
+    }
+  };
 
   // Setup speech recognition
   useEffect(() => {
@@ -58,11 +82,9 @@ function App() {
       };
     } else {
       setIsSupported(false);
-      alert('Speech recognition not supported in this browser. Please use Chrome or Edge.');
     }
   }, []);
 
-  // Toggle recording
   const toggleRecording = () => {
     if (!isSupported) {
       alert('Speech recognition not supported in this browser');
@@ -83,21 +105,18 @@ function App() {
     }
   };
 
-  // Extract section from formatted report
   const extractSection = (text, sectionName) => {
     const regex = new RegExp(`## ${sectionName}\\s*([\\s\\S]*?)(?=##|$)`, "i");
     const match = text.match(regex);
     return match ? match[1].trim() : "";
   };
 
-  // Parse formatted report into sections
   const parseFormattedReport = (text) => ({
     inProgress: extractSection(text, "In Progress"),
     completed: extractSection(text, "Completed"),
     support: extractSection(text, "Support"),
   });
 
-  // Handle Next button - Get AI preview (DON'T save yet)
   const handleNext = async () => {
     if (!spokenText.trim()) {
       alert('Please speak something or type text before proceeding');
@@ -107,38 +126,29 @@ function App() {
     setLoading(true);
 
     try {
-      // Call backend to format with AI
       const response = await reportAPI.formatReport({
         rawInputs: {
           accomplishments: spokenText,
-          inProgress: '',
-          blockers: '',
-          notes: ''
         },
         title: `Daily Report - ${format(new Date(), 'MMM dd, yyyy')}`,
       });
-      
-      console.log("✅ AI Formatting response:", response);
 
       if (!response.formattedReport) {
         throw new Error("No formattedReport returned from backend");
       }
 
-      // Parse the formatted report
       const formatted = parseFormattedReport(response.formattedReport);
 
-      // Set preview data (not saved yet!)
       setPreviewData({
-        serialNumber: serialNumber,
         date: new Date(),
-        inProgress: formatted.inProgress || "- Current work items",
-        completed: formatted.completed || "- Summary of completed tasks",
-        support: formatted.support || "- Help received or time saved",
+        inProgress: formatted.inProgress || "None",
+        completed: formatted.completed || "None",
+        support: formatted.support || "None",
         rawText: spokenText,
         fullFormattedReport: response.formattedReport
       });
       
-      setStep(2); // Go to preview step
+      setStep(2);
     } catch (error) {
       console.error('❌ Error formatting report:', error);
       alert('❌ Failed to process report: ' + (error.message || 'Unknown error'));
@@ -147,7 +157,6 @@ function App() {
     }
   };
 
-  // Handle Save button - Actually save to database
   const handleSave = async () => {
     if (!previewData) {
       alert('No data to save');
@@ -157,39 +166,37 @@ function App() {
     setSaving(true);
 
     try {
-      // Here you would call your actual save endpoint
-      // For now, just add to local state
-      const newReport = {
-        id: Date.now(),
-        ...previewData,
-        savedAt: new Date()
-      };
+      await reportAPI.createReport({
+        rawInputs: {
+          accomplishments: previewData.rawText,
+        },
+        title: `Daily Report - ${format(new Date(), 'MMM dd, yyyy')}`,
+        parsedSections: {
+          inProgress: previewData.inProgress,
+          completed: previewData.completed,
+          support: previewData.support,
+        }
+      });
 
-      setSavedReports(prev => [...prev, newReport]);
-      setSerialNumber(prev => prev + 1);
-      
+      await loadSavedReports();
       alert('✅ Report saved successfully!');
       
-      // Reset form
       setStep(1);
       setSpokenText('');
       setPreviewData(null);
       
     } catch (error) {
       console.error('❌ Error saving report:', error);
-      alert('❌ Failed to save report');
+      alert('❌ Failed to save report: ' + (error.message || 'Unknown error'));
     } finally {
       setSaving(false);
     }
   };
 
-  // Handle Edit - Go back and edit
   const handleEdit = () => {
     setStep(1);
-    // Keep spokenText so user can edit it
   };
 
-  // Handle Cancel
   const handleCancel = () => {
     if (step === 1) {
       setSpokenText('');
@@ -202,185 +209,382 @@ function App() {
     }
   };
 
+  const startEditReport = (report) => {
+    setEditingReport(report._id);
+    setEditForm({
+      completed: report.completed || '',
+      inProgress: report.inProgress || '',
+      support: report.support || ''
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingReport(null);
+    setEditForm({ completed: '', inProgress: '', support: '' });
+  };
+
+  const saveEditedReport = async (reportId) => {
+    try {
+      await reportAPI.updateReport(reportId, {
+        completed: editForm.completed,
+        inProgress: editForm.inProgress,
+        support: editForm.support
+      });
+
+      await loadSavedReports();
+      setEditingReport(null);
+      alert('✅ Report updated successfully');
+    } catch (error) {
+      console.error('Error updating report:', error);
+      alert('❌ Failed to update report');
+    }
+  };
+
+  const handleDelete = async (reportId) => {
+    if (!confirm('Are you sure you want to delete this report?')) {
+      return;
+    }
+
+    try {
+      await reportAPI.deleteReport(reportId);
+      await loadSavedReports();
+      alert('✅ Report deleted successfully');
+    } catch (error) {
+      console.error('Error deleting report:', error);
+      alert('❌ Failed to delete report');
+    }
+  };
+
+  // Check if input has text for button color change
+  const hasInput = spokenText.trim().length > 0;
+
   // Render Step 1: Recording
   if (step === 1) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-100 via-gray-200 to-gray-300 flex items-center justify-center p-6">
-        <div className="w-full max-w-5xl">
-          <div className="bg-gradient-to-r from-gray-400 to-gray-500 text-white px-8 py-4 rounded-t-2xl shadow-lg">
-            <h1 className="text-2xl font-bold">Hello {userName}, Welcome back!..</h1>
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex flex-col">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-8 py-6 shadow-lg">
+          <div className="max-w-7xl mx-auto">
+            <h1 className="text-3xl font-bold">Hello {userName}, Welcome back! 👋</h1>
+            <p className="text-blue-100 mt-1">Share your daily standup updates</p>
           </div>
+        </div>
 
-          <div className="bg-white rounded-b-2xl shadow-2xl p-8">
-            <div className="flex items-start gap-4 mb-8">
-              <div className="flex-1">
-                {isRecording && (
-                  <div className="flex items-center gap-2 mb-2 text-red-600 animate-pulse">
-                    <div className="w-3 h-3 bg-red-600 rounded-full animate-ping"></div>
-                    <span className="font-semibold">Recording...</span>
+        {/* Main Content - Centered */}
+        <div className="flex-1 flex items-center justify-center px-6 py-8">
+          <div className="w-full max-w-3xl">
+            {/* Input Card */}
+            <div className="bg-white rounded-2xl shadow-xl p-8 mb-8">
+              <div className="flex items-start gap-6">
+                {/* Text Input */}
+                <div className="flex-1">
+                  {isRecording && (
+                    <div className="flex items-center gap-2 mb-3 text-red-600 animate-pulse">
+                      <div className="w-3 h-3 bg-red-600 rounded-full animate-ping"></div>
+                      <span className="font-semibold">🎤 Recording...</span>
+                    </div>
+                  )}
+                  <textarea
+                    value={spokenText}
+                    onChange={(e) => setSpokenText(e.target.value)}
+                    placeholder="Click the microphone to speak or type here manually..."
+                    className="w-full h-40 p-4 border-2 border-gray-300 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none resize-none text-gray-800 transition-all"
+                    disabled={isRecording}
+                  />
+                  <div className="mt-2 text-sm text-gray-500">
+                    {spokenText.length} characters
                   </div>
-                )}
-                <textarea
-                  value={spokenText}
-                  onChange={(e) => setSpokenText(e.target.value)}
-                  placeholder="Click the microphone to speak or type here manually..."
-                  className="w-full h-48 p-4 border-2 border-gray-300 rounded-xl focus:border-blue-500 focus:outline-none resize-none text-gray-700 text-lg"
-                  disabled={isRecording}
-                />
+                </div>
+
+                {/* Microphone Button */}
+                <div className="flex flex-col items-center gap-2 pt-2">
+                  <span className="text-xs font-bold text-gray-600 uppercase tracking-wide">Speak</span>
+                  <button
+                    onClick={toggleRecording}
+                    className={`w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all transform hover:scale-110 ${
+                      isRecording
+                        ? 'bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 animate-pulse'
+                        : 'bg-white hover:bg-gray-50 border-4 border-indigo-500 hover:border-indigo-600'
+                    }`}
+                  >
+                    {isRecording ? (
+                      <MicOff className="w-8 h-8 text-white" />
+                    ) : (
+                      <Mic className="w-8 h-8 text-indigo-500" />
+                    )}
+                  </button>
+                </div>
               </div>
 
-              <div className="flex flex-col items-center">
-                <span className="text-sm font-semibold text-gray-700 mb-2">speak</span>
+              {/* Action Buttons */}
+              <div className="flex justify-center gap-6 mt-8">
                 <button
-                  onClick={toggleRecording}
-                  className={`w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all transform hover:scale-110 ${
-                    isRecording
-                      ? 'bg-red-500 hover:bg-red-600 animate-pulse'
-                      : 'bg-white hover:bg-gray-50 border-4 border-purple-500'
+                  onClick={handleNext}
+                  disabled={loading || !hasInput}
+                  className={`flex items-center gap-2 px-10 py-10 rounded-xl font-semibold transition-all transform hover:scale-105 shadow-lg ${
+                    loading
+                      ? 'bg-gray-400 text-white cursor-wait'
+                      : hasInput
+                      ? 'bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white'
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   }`}
                 >
-                  {isRecording ? (
-                    <MicOff className="w-8 h-8 text-white" />
+                  {loading ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span>Processing...</span>
+                    </>
                   ) : (
-                    <Mic className="w-8 h-8 text-purple-500" />
+                    <>
+                      <span>Next</span>
+                      <ArrowRight className="w-5 h-5" />
+                    </>
                   )}
+                </button>
+
+                <button
+                  onClick={handleCancel}
+                  className="flex items-center gap-3 px-10 py-3 bg-white text-gray-700 rounded-xl font-semibold hover:bg-gray-100 border-2 border-gray-300 hover:border-gray-400 transition-all transform hover:scale-105 shadow-lg"
+                >
+                  <span>Cancel</span>
+                  <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
+          </div>
+        </div>
 
-            <div className="flex justify-center gap-4">
-              <button
-                onClick={handleNext}
-                disabled={loading || !spokenText.trim()}
-                className="px-12 py-3 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all transform hover:scale-105 shadow-lg"
-              >
-                {loading ? (
-                  <span className="flex items-center gap-2">
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    Processing...
-                  </span>
-                ) : (
-                  'Next'
-                )}
-              </button>
-              <button
-                onClick={handleCancel}
-                className="px-12 py-3 bg-white text-gray-700 rounded-full font-semibold hover:bg-gray-100 border-2 border-gray-300 transition-all transform hover:scale-105 shadow-lg"
-              >
-                Cancel
-              </button>
-            </div>
+        {/* History Section - Always Visible at Bottom */}
+        <div className="bg-white border-t-4 border-indigo-600 shadow-2xl">
+          <div className="max-w-7xl mx-auto px-6 py-6">
+            <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+              <span className="text-indigo-600">📊</span>
+              Report History ({savedReports.length} Reports)
+            </h2>
+
+            {savedReports.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <p>No reports yet. Create your first report above! 👆</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border-2 border-gray-200">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white">
+                      <th className="border-2 border-indigo-700 px-4 py-3 text-center font-bold text-sm w-20">S.No</th>
+                      <th className="border-2 border-indigo-700 px-4 py-3 text-left font-bold text-sm w-32">Date</th>
+                      <th className="border-2 border-indigo-700 px-4 py-3 text-left font-bold text-sm">Completed</th>
+                      <th className="border-2 border-indigo-700 px-4 py-3 text-left font-bold text-sm">In Progress</th>
+                      <th className="border-2 border-indigo-700 px-4 py-3 text-left font-bold text-sm">Support</th>
+                      <th className="border-2 border-indigo-700 px-4 py-3 text-center font-bold text-sm w-28">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {savedReports.map((report, index) => {
+                      const isEditing = editingReport === report._id;
+                      const serialNumber = savedReports.length - index;
+
+                      return (
+                        <tr
+                          key={report._id}
+                          className={`${
+                            index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                          } hover:bg-indigo-50 transition-colors`}
+                        >
+                          <td className="border-2 border-gray-200 px-4 py-3 text-center font-bold text-gray-800">
+                            {serialNumber}
+                          </td>
+                          <td className="border-2 border-gray-200 px-4 py-3">
+                            <div className="text-sm font-semibold text-gray-800">
+                              {format(new Date(report.createdAt), 'MMM dd, yyyy')}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {format(new Date(report.createdAt), 'h:mm a')}
+                            </div>
+                          </td>
+                          <td className="border-2 border-gray-200 px-4 py-3">
+                            {isEditing ? (
+                              <textarea
+                                value={editForm.completed}
+                                onChange={(e) => setEditForm({ ...editForm, completed: e.target.value })}
+                                className="w-full h-20 p-2 border border-gray-300 rounded text-sm focus:border-indigo-500 focus:outline-none resize-none"
+                              />
+                            ) : (
+                              <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                                {report.completed || 'None'}
+                              </div>
+                            )}
+                          </td>
+                          <td className="border-2 border-gray-200 px-4 py-3">
+                            {isEditing ? (
+                              <textarea
+                                value={editForm.inProgress}
+                                onChange={(e) => setEditForm({ ...editForm, inProgress: e.target.value })}
+                                className="w-full h-20 p-2 border border-gray-300 rounded text-sm focus:border-indigo-500 focus:outline-none resize-none"
+                              />
+                            ) : (
+                              <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                                {report.inProgress || 'None'}
+                              </div>
+                            )}
+                          </td>
+                          <td className="border-2 border-gray-200 px-4 py-3">
+                            {isEditing ? (
+                              <textarea
+                                value={editForm.support}
+                                onChange={(e) => setEditForm({ ...editForm, support: e.target.value })}
+                                className="w-full h-20 p-2 border border-gray-300 rounded text-sm focus:border-indigo-500 focus:outline-none resize-none"
+                              />
+                            ) : (
+                              <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                                {report.support || 'None'}
+                              </div>
+                            )}
+                          </td>
+                          <td className="border-2 border-gray-200 px-4 py-3">
+                            {isEditing ? (
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  onClick={() => saveEditedReport(report._id)}
+                                  className="p-2 bg-green-500 text-white rounded-lg hover:bg-green-600 hover:shadow-lg transition-all"
+                                  title="Save changes"
+                                >
+                                  <Check className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={cancelEdit}
+                                  className="p-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 hover:shadow-lg transition-all"
+                                  title="Cancel"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  onClick={() => startEditReport(report)}
+                                  className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 hover:shadow-lg transition-all"
+                                  title="Edit report"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(report._id)}
+                                  className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600 hover:shadow-lg transition-all"
+                                  title="Delete report"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       </div>
     );
   }
 
-  // Render Step 2: Preview with Save Button
+  // Render Step 2: Preview
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-100 via-gray-200 to-gray-300 flex items-center justify-center p-6">
-      <div className="w-full max-w-6xl">
-        <div className="bg-gradient-to-r from-gray-400 to-gray-500 text-white px-8 py-4 rounded-t-2xl shadow-lg">
-          <h1 className="text-2xl font-bold">Hello {userName}, Welcome back!..</h1>
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex flex-col">
+      <div className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-8 py-6 shadow-lg">
+        <div className="max-w-7xl mx-auto">
+          <h1 className="text-3xl font-bold">Hello {userName}, Welcome back! 👋</h1>
+          <p className="text-blue-100 mt-1">Review your formatted report</p>
         </div>
+      </div>
 
-        <div className="bg-white rounded-b-2xl shadow-2xl p-8">
-          {/* Info Box */}
-          <div className="bg-blue-50 rounded-xl p-4 mb-6 border-2 border-blue-300">
-            <p className="text-gray-800 text-center font-semibold">
-              📋 Preview: Your spoken input has been processed and formatted below
-            </p>
-            <p className="text-gray-600 text-center text-sm mt-1">
-              Review the data and click "Save" to store it in the database
-            </p>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex justify-center gap-4 mb-8">
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="flex items-center gap-2 px-12 py-3 bg-green-600 text-white rounded-full font-semibold hover:bg-green-700 disabled:bg-gray-400 transition-all transform hover:scale-105 shadow-lg"
-            >
-              {saving ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="w-5 h-5" />
-                  Save to Database
-                </>
-              )}
-            </button>
-            <button
-              onClick={handleEdit}
-              className="flex items-center gap-2 px-12 py-3 bg-yellow-500 text-white rounded-full font-semibold hover:bg-yellow-600 transition-all transform hover:scale-105 shadow-lg"
-            >
-              <Edit2 className="w-5 h-5" />
-              Edit
-            </button>
-            <button
-              onClick={handleCancel}
-              className="px-12 py-3 bg-white text-gray-700 rounded-full font-semibold hover:bg-gray-100 border-2 border-gray-300 transition-all transform hover:scale-105 shadow-lg"
-            >
-              Cancel
-            </button>
-          </div>
-
-          {/* Preview Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="bg-gray-400">
-                  <th className="border-2 border-gray-600 px-6 py-4 text-left font-bold text-gray-800">S.No</th>
-                  <th className="border-2 border-gray-600 px-6 py-4 text-left font-bold text-gray-800">Date</th>
-                  <th className="border-2 border-gray-600 px-6 py-4 text-left font-bold text-gray-800">In Progress</th>
-                  <th className="border-2 border-gray-600 px-6 py-4 text-left font-bold text-gray-800">Completed</th>
-                  <th className="border-2 border-gray-600 px-6 py-4 text-left font-bold text-gray-800">Support</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="bg-blue-50 hover:bg-blue-100 transition-colors border-4 border-blue-500">
-                  <td className="border-2 border-blue-500 px-6 py-6 font-semibold text-gray-800">
-                    {previewData?.serialNumber}
-                  </td>
-                  <td className="border-2 border-blue-500 px-6 py-6 font-semibold text-gray-800">
-                    {previewData && format(previewData.date, 'MMM dd, yyyy')}
-                  </td>
-                  <td className="border-2 border-blue-500 px-6 py-6 text-gray-700 whitespace-pre-wrap">
-                    {previewData?.inProgress}
-                  </td>
-                  <td className="border-2 border-blue-500 px-6 py-6 text-gray-700 whitespace-pre-wrap">
-                    {previewData?.completed}
-                  </td>
-                  <td className="border-2 border-blue-500 px-6 py-6 text-gray-700 whitespace-pre-wrap">
-                    {previewData?.support}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* Legend */}
-          <div className="mt-6 text-center">
-            <p className="text-sm text-gray-600">
-              ✨ AI-powered formatting applied to your spoken input
-            </p>
-            <p className="text-xs text-gray-500 mt-2">
-              Generated on {previewData && format(previewData.date, 'PPP p')}
-            </p>
-          </div>
-
-          {/* Show saved reports count */}
-          {savedReports.length > 0 && (
-            <div className="mt-6 text-center">
-              <p className="text-sm font-semibold text-green-600">
-                ✅ {savedReports.length} report{savedReports.length > 1 ? 's' : ''} saved today
+      <div className="flex-1 flex items-center justify-center px-6 py-8">
+        <div className="w-full max-w-6xl">
+          <div className="bg-white rounded-2xl shadow-xl p-8">
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-5 mb-6 border-2 border-blue-200">
+              <p className="text-gray-800 text-center font-bold text-lg">
+                📋 Preview: Your spoken input has been processed and formatted below
+              </p>
+              <p className="text-gray-600 text-center text-sm mt-2">
+                Review the data and click "Save" to store it in the database
               </p>
             </div>
-          )}
+
+            <div className="flex justify-center gap-6 mb-8">
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center gap-3 px-10 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl font-bold hover:from-green-700 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-500 transition-all transform hover:scale-105 shadow-lg"
+              >
+                {saving ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-5 h-5" />
+                    <span>Save to Database</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={handleEdit}
+                className="flex items-center gap-3 px-10 py-3 bg-gradient-to-r from-yellow-500 to-orange-500 text-white rounded-xl font-bold hover:from-yellow-600 hover:to-orange-600 transition-all transform hover:scale-105 shadow-lg"
+              >
+                <Edit2 className="w-5 h-5" />
+                <span>Edit</span>
+              </button>
+
+              <button
+                onClick={handleCancel}
+                className="flex items-center gap-3 px-10 py-3 bg-white text-gray-700 rounded-xl font-bold hover:bg-gray-100 border-2 border-gray-300 hover:border-gray-400 transition-all transform hover:scale-105 shadow-lg"
+              >
+                <span>Cancel</span>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border-2 border-gray-200">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white">
+                    <th className="border-2 border-indigo-700 px-6 py-4 text-left font-bold">Date</th>
+                    <th className="border-2 border-indigo-700 px-6 py-4 text-left font-bold">Completed</th>
+                    <th className="border-2 border-indigo-700 px-6 py-4 text-left font-bold">In Progress</th>
+                    <th className="border-2 border-indigo-700 px-6 py-4 text-left font-bold">Support</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="bg-gradient-to-r from-blue-50 to-indigo-50">
+                    <td className="border-2 border-blue-300 px-6 py-5 font-bold text-gray-800">
+                      {previewData && format(previewData.date, 'MMM dd, yyyy')}
+                    </td>
+                    <td className="border-2 border-blue-300 px-6 py-5 text-gray-700 whitespace-pre-wrap">
+                      {previewData?.completed}
+                    </td>
+                    <td className="border-2 border-blue-300 px-6 py-5 text-gray-700 whitespace-pre-wrap">
+                      {previewData?.inProgress}
+                    </td>
+                    <td className="border-2 border-blue-300 px-6 py-5 text-gray-700 whitespace-pre-wrap">
+                      {previewData?.support}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-6 text-center text-sm text-gray-600">
+              <p>✨ AI-powered formatting applied to your spoken input</p>
+              <p className="text-xs text-gray-500 mt-1">
+                Generated on {previewData && format(previewData.date, 'PPPP - p')}
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
