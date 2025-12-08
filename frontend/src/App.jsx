@@ -1,12 +1,15 @@
 // src/App.jsx
 
 import { useState, useRef, useEffect } from 'react';
-import { Mic, MicOff, Save, Edit2, Trash2, ArrowRight, X, Check } from 'lucide-react';
+import { Mic, MicOff, Save, Edit2, Trash2, ArrowRight, X, Check, Download } from 'lucide-react';
 import { apiClient as reportAPI } from './api/client.js';
 import { format } from 'date-fns';
+import ExportModal from './components/ExportModal';
 
 function App() {
-  // State management
+  // ============================================
+  // STATE MANAGEMENT
+  // ============================================
   const [step, setStep] = useState(1);
   const [isRecording, setIsRecording] = useState(false);
   const [spokenText, setSpokenText] = useState('');
@@ -21,11 +24,14 @@ function App() {
     inProgress: '',
     support: ''
   });
+  const [showExportModal, setShowExportModal] = useState(false);
   
   const recognitionRef = useRef(null);
   const [isSupported, setIsSupported] = useState(true);
 
-  // Load saved reports on mount
+  // ============================================
+  // LOAD SAVED REPORTS ON MOUNT
+  // ============================================
   useEffect(() => {
     loadSavedReports();
   }, []);
@@ -44,7 +50,9 @@ function App() {
     }
   };
 
-  // Setup speech recognition
+  // ============================================
+  // SETUP SPEECH RECOGNITION
+  // ============================================
   useEffect(() => {
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -85,6 +93,9 @@ function App() {
     }
   }, []);
 
+  // ============================================
+  // TOGGLE RECORDING
+  // ============================================
   const toggleRecording = () => {
     if (!isSupported) {
       alert('Speech recognition not supported in this browser');
@@ -105,18 +116,9 @@ function App() {
     }
   };
 
-  const extractSection = (text, sectionName) => {
-    const regex = new RegExp(`## ${sectionName}\\s*([\\s\\S]*?)(?=##|$)`, "i");
-    const match = text.match(regex);
-    return match ? match[1].trim() : "";
-  };
-
-  const parseFormattedReport = (text) => ({
-    inProgress: extractSection(text, "In Progress"),
-    completed: extractSection(text, "Completed"),
-    support: extractSection(text, "Support"),
-  });
-
+  // ============================================
+  // HANDLE NEXT (FORMAT WITH AI)
+  // ============================================
   const handleNext = async () => {
     if (!spokenText.trim()) {
       alert('Please speak something or type text before proceeding');
@@ -130,22 +132,22 @@ function App() {
         rawInputs: {
           accomplishments: spokenText,
         },
-        title: `Daily Report - ${format(new Date(), 'MMM dd, yyyy')}`,
       });
 
-      if (!response.formattedReport) {
-        throw new Error("No formattedReport returned from backend");
+      console.log('📥 Format response:', response);
+
+      if (!response.parsedSections) {
+        throw new Error("No parsedSections returned from backend");
       }
 
-      const formatted = parseFormattedReport(response.formattedReport);
-
+      // Store both parsed sections AND the formatted report
       setPreviewData({
         date: new Date(),
-        inProgress: formatted.inProgress || "None",
-        completed: formatted.completed || "None",
-        support: formatted.support || "None",
+        completed: response.parsedSections.completed || "None",
+        inProgress: response.parsedSections.inProgress || "None",
+        support: response.parsedSections.support || "None",
         rawText: spokenText,
-        fullFormattedReport: response.formattedReport
+        fullFormattedReport: response.formattedReport || '' // ✅ Store the full formatted report
       });
       
       setStep(2);
@@ -157,6 +159,9 @@ function App() {
     }
   };
 
+  // ============================================
+  // HANDLE SAVE (SAVE TO DATABASE)
+  // ============================================
   const handleSave = async () => {
     if (!previewData) {
       alert('No data to save');
@@ -171,9 +176,17 @@ function App() {
           accomplishments: previewData.rawText,
         },
         title: `Daily Report - ${format(new Date(), 'MMM dd, yyyy')}`,
+        formattedReport: previewData.fullFormattedReport || `## Completed
+${previewData.completed}
+
+## In Progress
+${previewData.inProgress}
+
+## Support
+${previewData.support}`, // ✅ Build formattedReport if not present
         parsedSections: {
-          inProgress: previewData.inProgress,
           completed: previewData.completed,
+          inProgress: previewData.inProgress,
           support: previewData.support,
         }
       });
@@ -193,6 +206,9 @@ function App() {
     }
   };
 
+  // ============================================
+  // HANDLE EDIT & CANCEL
+  // ============================================
   const handleEdit = () => {
     setStep(1);
   };
@@ -209,6 +225,9 @@ function App() {
     }
   };
 
+  // ============================================
+  // EDIT REPORT FUNCTIONS
+  // ============================================
   const startEditReport = (report) => {
     setEditingReport(report._id);
     setEditForm({
@@ -240,6 +259,9 @@ function App() {
     }
   };
 
+  // ============================================
+  // DELETE REPORT
+  // ============================================
   const handleDelete = async (reportId) => {
     if (!confirm('Are you sure you want to delete this report?')) {
       return;
@@ -255,10 +277,14 @@ function App() {
     }
   };
 
-  // Check if input has text for button color change
+  // ============================================
+  // COMPUTED VALUES
+  // ============================================
   const hasInput = spokenText.trim().length > 0;
 
-  // Render Step 1: Recording
+  // ============================================
+  // RENDER STEP 1: RECORDING
+  // ============================================
   if (step === 1) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex flex-col">
@@ -321,7 +347,7 @@ function App() {
                 <button
                   onClick={handleNext}
                   disabled={loading || !hasInput}
-                  className={`flex items-center gap-2 px-10 py-10 rounded-xl font-semibold transition-all transform hover:scale-105 shadow-lg ${
+                  className={`flex items-center gap-2 px-10 py-3 rounded-xl font-semibold transition-all transform hover:scale-105 shadow-lg ${
                     loading
                       ? 'bg-gray-400 text-white cursor-wait'
                       : hasInput
@@ -344,10 +370,9 @@ function App() {
 
                 <button
                   onClick={handleCancel}
-                  className="flex items-center gap-3 px-10 py-3 bg-white text-gray-700 rounded-xl font-semibold hover:bg-gray-100 border-2 border-gray-300 hover:border-gray-400 transition-all transform hover:scale-105 shadow-lg"
+                  className="flex items-center gap-2 px-10 py-3 bg-white text-gray-700 rounded-xl font-semibold hover:bg-gray-100 border-2 border-gray-300 hover:border-gray-400 transition-all transform hover:scale-105 shadow-lg"
                 >
                   <span>Cancel</span>
-                  <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
@@ -357,10 +382,23 @@ function App() {
         {/* History Section - Always Visible at Bottom */}
         <div className="bg-white border-t-4 border-indigo-600 shadow-2xl">
           <div className="max-w-7xl mx-auto px-6 py-6">
-            <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-              <span className="text-indigo-600">📊</span>
-              Report History ({savedReports.length} Reports)
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                <span className="text-indigo-600">📊</span>
+                Report History ({savedReports.length} Reports)
+              </h2>
+              
+              {/* Export Button */}
+              {savedReports.length > 0 && (
+                <button
+                  onClick={() => setShowExportModal(true)}
+                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg font-semibold hover:from-green-700 hover:to-emerald-700 transition-all shadow-lg"
+                >
+                  <Download className="w-5 h-5" />
+                  <span>Export Data</span>
+                </button>
+              )}
+            </div>
 
             {savedReports.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
@@ -443,37 +481,37 @@ function App() {
                           </td>
                           <td className="border-2 border-gray-200 px-4 py-3">
                             {isEditing ? (
-                              <div className="flex items-center justify-center gap-2">
+                              <div className="flex items-center justify-center gap-3">
                                 <button
                                   onClick={() => saveEditedReport(report._id)}
-                                  className="p-2 bg-green-500 text-white rounded-lg hover:bg-green-600 hover:shadow-lg transition-all"
+                                  className="text-green-600 hover:text-green-700 hover:scale-125 transition-all"
                                   title="Save changes"
                                 >
-                                  <Check className="w-4 h-4" />
+                                  <Check className="w-5 h-5" />
                                 </button>
                                 <button
                                   onClick={cancelEdit}
-                                  className="p-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 hover:shadow-lg transition-all"
+                                  className="text-gray-600 hover:text-gray-700 hover:scale-125 transition-all"
                                   title="Cancel"
                                 >
-                                  <X className="w-4 h-4" />
+                                  <X className="w-5 h-5" />
                                 </button>
                               </div>
                             ) : (
-                              <div className="flex items-center justify-center gap-2">
+                              <div className="flex items-center justify-center gap-3">
                                 <button
                                   onClick={() => startEditReport(report)}
-                                  className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 hover:shadow-lg transition-all"
+                                  className="text-blue-600 hover:text-blue-700 hover:scale-125 transition-all"
                                   title="Edit report"
                                 >
-                                  <Edit2 className="w-4 h-4" />
+                                  <Edit2 className="w-5 h-5" />
                                 </button>
                                 <button
                                   onClick={() => handleDelete(report._id)}
-                                  className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600 hover:shadow-lg transition-all"
+                                  className="text-red-600 hover:text-red-700 hover:scale-125 transition-all"
                                   title="Delete report"
                                 >
-                                  <Trash2 className="w-4 h-4" />
+                                  <Trash2 className="w-5 h-5" />
                                 </button>
                               </div>
                             )}
@@ -487,11 +525,16 @@ function App() {
             )}
           </div>
         </div>
+
+        {/* Export Modal */}
+        <ExportModal isOpen={showExportModal} onClose={() => setShowExportModal(false)} />
       </div>
     );
   }
 
-  // Render Step 2: Preview
+  // ============================================
+  // RENDER STEP 2: PREVIEW
+  // ============================================
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex flex-col">
       <div className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-8 py-6 shadow-lg">
@@ -517,7 +560,7 @@ function App() {
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="flex items-center gap-3 px-10 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl font-bold hover:from-green-700 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-500 transition-all transform hover:scale-105 shadow-lg"
+                className="flex items-center gap-3 px-12 py-3.5 rounded-lg font-semibold transition-all transform hover:scale-105 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-500 text-white border-2 border-green-700 shadow-lg"
               >
                 {saving ? (
                   <>
@@ -527,14 +570,14 @@ function App() {
                 ) : (
                   <>
                     <Save className="w-5 h-5" />
-                    <span>Save to Database</span>
+                    <span>Save</span>
                   </>
                 )}
               </button>
 
               <button
                 onClick={handleEdit}
-                className="flex items-center gap-3 px-10 py-3 bg-gradient-to-r from-yellow-500 to-orange-500 text-white rounded-xl font-bold hover:from-yellow-600 hover:to-orange-600 transition-all transform hover:scale-105 shadow-lg"
+                className="flex items-center gap-3 px-12 py-3.5 rounded-lg font-semibold transition-all transform hover:scale-105 bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white border-2 border-orange-600 shadow-lg"
               >
                 <Edit2 className="w-5 h-5" />
                 <span>Edit</span>
@@ -542,10 +585,9 @@ function App() {
 
               <button
                 onClick={handleCancel}
-                className="flex items-center gap-3 px-10 py-3 bg-white text-gray-700 rounded-xl font-bold hover:bg-gray-100 border-2 border-gray-300 hover:border-gray-400 transition-all transform hover:scale-105 shadow-lg"
+                className="px-12 py-3.5 bg-white text-gray-700 rounded-lg font-semibold hover:bg-gray-50 border-2 border-gray-300 hover:border-gray-400 transition-all transform hover:scale-105 shadow-md"
               >
-                <span>Cancel</span>
-                <X className="w-5 h-5" />
+                Cancel
               </button>
             </div>
 

@@ -22,8 +22,8 @@ class HuggingFaceService {
         {
           inputs: prompt,
           parameters: {
-            max_new_tokens: 1000,      // ✅ Even more tokens
-            temperature: 0.4,           // ✅ Lower for precision
+            max_new_tokens: 1200,  // ✅ Increased for longer outputs
+            temperature: 0.3,       // ✅ Low for precision
             top_p: 0.9,
             return_full_text: false,
             do_sample: true,
@@ -83,12 +83,13 @@ class HuggingFaceService {
   }
 
   /**
-   * ✅ IMPROVED MANUAL PARSER - UNDERSTANDS IT PROFESSIONAL LANGUAGE
+   * ✅ UNIVERSAL MANUAL PARSER - WORKS FOR ANY INPUT
    */
   manualParse(prompt) {
-    console.log('🔧 Using improved manual parsing...');
+    console.log('🔧 Using universal manual parsing...');
     
-    const inputMatch = prompt.match(/(?:\*\*Input from IT professional:\*\*|Input:)\s*([\s\S]*?)(?:\n\n\*\*Your task|\*\*NOW FORMAT|$)/i);
+    // Extract raw input
+    const inputMatch = prompt.match(/(?:\*\*INPUT:\*\*|INPUT:)\s*([\s\S]*?)(?:\n\n\*\*|NOW FORMAT|$)/i);
     const rawInput = inputMatch ? inputMatch[1].trim() : '';
     
     console.log('📝 Extracted raw input:', rawInput);
@@ -103,157 +104,212 @@ class HuggingFaceService {
     let inProgress = [];
     let support = [];
     
-    // ✅ Extract ALL ticket/task numbers (Task 117, LAA-107, JIRA-123, etc.)
-    const ticketPattern = /(?:task|ticket)?\s*#?([A-Z]+-\d+|\d+)(?=\s|,|\.|\band\b|$)/gi;
-    const allTickets = [];
-    let match;
-    while ((match = ticketPattern.exec(rawInput)) !== null) {
-      allTickets.push(match[1]);
-    }
-    
-    console.log('🎫 Found ALL tickets/tasks:', allTickets);
-    
-    // ✅ Check for "no support" variations
-    const noSupportMatch = /no support|no help|no assistance|without support/i.test(lowerInput);
-    
-    // ✅ Extract time with EXACT phrases preserved
+    // ============================================
+    // STEP 1: EXTRACT SUPPORT TIME
+    // ============================================
+    const noSupportMatch = /no support|no help|no assistance/i.test(lowerInput);
     let supportTime = null;
-    const timePatterns = [
-      /(?:more than|over|about|around|approximately)\s+(\d+(?:\.\d+)?)\s*(min|minutes|hour|hours|hrs?)/i,
-      /(\d+(?:\.\d+)?)\s*(min|minutes|hour|hours|hrs?)/i
-    ];
     
-    for (const pattern of timePatterns) {
-      const timeMatch = rawInput.match(pattern);
-      if (timeMatch && !noSupportMatch) {
-        const prefix = timeMatch[0].toLowerCase().includes('more than') ? 'More than ' :
-                      timeMatch[0].toLowerCase().includes('over') ? 'Over ' :
-                      timeMatch[0].toLowerCase().includes('about') ? 'About ' :
-                      timeMatch[0].toLowerCase().includes('around') ? 'Around ' : '';
-        const num = timeMatch[1];
-        const unit = timeMatch[2].toLowerCase().startsWith('h') ? 'hours' : 'minutes';
-        supportTime = `${prefix}${num} ${unit}`;
-        break;
+    if (!noSupportMatch) {
+      const timePatterns = [
+        /(?:more than|over|about|around|approximately)\s+(\d+(?:\.\d+)?)\s*(min|minutes|hour|hours|hrs?)/i,
+        /(\d+(?:\.\d+)?)\s*(min|minutes|hour|hours|hrs?)/i
+      ];
+      
+      for (const pattern of timePatterns) {
+        const timeMatch = rawInput.match(pattern);
+        if (timeMatch) {
+          const prefix = timeMatch[0].toLowerCase().includes('more than') ? 'More than ' :
+                        timeMatch[0].toLowerCase().includes('over') ? 'Over ' :
+                        timeMatch[0].toLowerCase().includes('about') ? 'About ' :
+                        timeMatch[0].toLowerCase().includes('around') ? 'Around ' : '';
+          const num = timeMatch[1];
+          const unit = timeMatch[2].toLowerCase().startsWith('h') ? 'hours' : 'minutes';
+          supportTime = `${prefix}${num} ${unit}`;
+          break;
+        }
       }
     }
     
-    // ✅ Split by sentence delimiters
-    const sentences = rawInput
-      .split(/[.!?;]|and(?=\s+[a-z]+\s+(?:task|ticket|LAA|JIRA))/i)
-      .map(s => s.trim())
-      .filter(s => s.length > 0);
+    // ============================================
+    // STEP 2: IDENTIFY ALL ACTION VERBS
+    // ============================================
+    const completedVerbs = /\b(finished|completed|done|resolved|closed|deployed|fixed|updated|created|uploaded|submitted)\b/gi;
+    const inProgressVerbs = /\b(started|starting|working|testing|developing|investigating|reviewing|implementing|coding|will|plan|going|need)\b/gi;
     
-    console.log('📝 Split into sentences:', sentences);
+    const actions = [];
     
-    sentences.forEach(sentence => {
-      const lower = sentence.toLowerCase();
-      
-      // Skip support-only sentences
-      if (/^support|^got help|^received help/i.test(sentence) && supportTime) {
-        return;
+    // Find completed actions
+    let match;
+    const completedRegex = new RegExp(completedVerbs.source, 'gi');
+    while ((match = completedRegex.exec(rawInput)) !== null) {
+      actions.push({
+        verb: match[0],
+        index: match.index,
+        type: 'completed'
+      });
+    }
+    
+    // Find in-progress actions
+    const inProgressRegex = new RegExp(inProgressVerbs.source, 'gi');
+    while ((match = inProgressRegex.exec(rawInput)) !== null) {
+      // Avoid duplicates
+      if (!actions.some(a => Math.abs(a.index - match.index) < 5)) {
+        actions.push({
+          verb: match[0],
+          index: match.index,
+          type: 'inProgress'
+        });
       }
-      
-      // Fix common spelling errors
-      let cleanSentence = sentence
-        .replace(/createing/gi, 'creating')
-        .replace(/scenareos/gi, 'scenarios')
-        .replace(/zypher/gi, 'Zephyr')
-        .replace(/jira\b/gi, 'Jira')
-        .replace(/toady/gi, 'today')
-        .replace(/\bi\s+have\s+/gi, '')
-        .replace(/\bi\s+/gi, '')
-        .trim();
-      
-      // Extract tickets from this sentence
-      const sentenceTickets = [];
-      const ticketRegex = /(?:task|ticket)?\s*#?([A-Z]+-\d+|\d+)(?=\s|,|\.|\band\b|$)/gi;
-      let ticketMatch;
-      while ((ticketMatch = ticketRegex.exec(sentence)) !== null) {
-        sentenceTickets.push(ticketMatch[1]);
-      }
-      
-      // ✅ FUTURE TENSE = IN PROGRESS
-      if (/will|would like to|going to|plan to|want to|need to|should/i.test(lower)) {
-        // This is a planned task (In Progress)
-        if (sentenceTickets.length > 0) {
-          const taskList = sentenceTickets.map(t => 
-            /^[A-Z]+-\d+$/.test(t) ? t : `Task ${t}`
-          ).join(', ');
-          
-          if (/test/i.test(lower)) {
-            inProgress.push(`- Will test ${taskList} today`);
-          } else {
-            inProgress.push(`- Planning to work on ${taskList}`);
-          }
-        } else if (cleanSentence.length > 3) {
-          inProgress.push(`- ${cleanSentence.charAt(0).toUpperCase() + cleanSentence.slice(1)}`);
-        }
-      }
-      // ✅ COMPLETED ACTIONS
-      else if (/done|completed|finished|updated|uploaded|submitted|closed|deployed|resolved/i.test(lower)) {
-        if (sentenceTickets.length > 0) {
-          const taskList = sentenceTickets.map(t => 
-            /^[A-Z]+-\d+$/.test(t) ? t : `Task ${t}`
-          ).join(' and ');
-          
-          if (/updated|uploaded/i.test(lower)) {
-            // Keep the action in the sentence
-            const action = cleanSentence.replace(/(?:task|ticket)?\s*#?[A-Z]+-?\d+/gi, '').trim();
-            completed.push(`- ${action.charAt(0).toUpperCase() + action.slice(1)} for ${taskList}`);
-          } else {
-            completed.push(`- Completed ${taskList}`);
-          }
-        } else {
-          cleanSentence = cleanSentence.charAt(0).toUpperCase() + cleanSentence.slice(1);
-          if (!cleanSentence.match(/^(completed|done|finished)/i)) {
-            cleanSentence = 'Completed ' + cleanSentence.toLowerCase();
-          }
-          completed.push(`- ${cleanSentence}`);
-        }
-      }
-      // ✅ IN PROGRESS (CURRENT ACTIONS)
-      else if (/working|testing|developing|investigating|currently|in progress|implementing|writing|coding|reviewing/i.test(lower)) {
-        if (sentenceTickets.length > 0) {
-          const taskList = sentenceTickets.map(t => 
-            /^[A-Z]+-\d+$/.test(t) ? t : `Task ${t}`
-          ).join(', ');
-          
-          let action = 'Working on';
-          if (/testing/i.test(lower)) action = 'Testing';
-          else if (/developing/i.test(lower)) action = 'Developing';
-          else if (/investigating/i.test(lower)) action = 'Investigating';
-          else if (/reviewing/i.test(lower)) action = 'Reviewing';
-          
-          inProgress.push(`- Currently ${action.toLowerCase()} ${taskList}`);
-        } else {
-          cleanSentence = cleanSentence.charAt(0).toUpperCase() + cleanSentence.slice(1);
-          if (!/^currently/i.test(cleanSentence)) {
-            cleanSentence = 'Currently ' + cleanSentence.toLowerCase();
-          }
-          inProgress.push(`- ${cleanSentence}`);
-        }
-      }
-      // ✅ DEFAULT: If mentions tickets, categorize by context
-      else if (sentenceTickets.length > 0) {
-        const taskList = sentenceTickets.map(t => 
-          /^[A-Z]+-\d+$/.test(t) ? t : `Task ${t}`
-        ).join(' and ');
+    }
+    
+    // Sort by position in text
+    actions.sort((a, b) => a.index - b.index);
+    
+    console.log('🎯 Found actions:', actions);
+    
+    // ============================================
+    // STEP 3: EXTRACT CONTEXT FOR EACH ACTION
+    // ============================================
+    if (actions.length > 0) {
+      for (let i = 0; i < actions.length; i++) {
+        const currentAction = actions[i];
+        const nextAction = actions[i + 1];
         
-        // Look for clues in the sentence
-        if (/test|testing/i.test(lower)) {
-          inProgress.push(`- Testing ${taskList}`);
+        // Extract text from current action to next action (or end)
+        const startIdx = currentAction.index;
+        const endIdx = nextAction ? nextAction.index : rawInput.length;
+        let phrase = rawInput.substring(startIdx, endIdx).trim();
+        
+        // Clean up
+        phrase = phrase
+          .replace(/^(and\s+|,\s*)/i, '')
+          .replace(/\s+(and\s+)?$/, '')
+          .replace(/^(I\s+have\s+|I\s+|I'm\s+)/i, '')
+          .trim();
+        
+        if (phrase.length < 5) continue; // Skip very short fragments
+        
+        // Extract task/ticket numbers
+        const taskNumbers = [];
+        const taskMatches = phrase.matchAll(/(?:task|ticket|the)?\s*#?(\d+|[A-Z]+-\d+)/gi);
+        for (const tm of taskMatches) {
+          if (tm[1] && tm[1] !== 'the') {
+            taskNumbers.push(tm[1]);
+          }
+        }
+        
+        // Handle number words
+        const numberWords = {
+          'three': '3', 'third': '3', '3rd': '3',
+          'four': '4', 'fourth': '4', '4th': '4',
+          'five': '5', 'fifth': '5', '5th': '5',
+          'six': '6', 'sixth': '6', '6th': '6',
+          'seven': '7', 'seventh': '7', '7th': '7',
+          'eight': '8', 'eighth': '8', '8th': '8',
+          'nine': '9', 'ninth': '9', '9th': '9',
+          'ten': '10', 'tenth': '10', '10th': '10'
+        };
+        
+        // Check for "finished X tasks"
+        const taskCountMatch = phrase.match(/\b(three|four|five|six|seven|eight|nine|ten|\d+)\s+tasks?\b/i);
+        
+        // Format the phrase
+        let formattedPhrase = phrase.charAt(0).toUpperCase() + phrase.slice(1);
+        
+        // Categorize
+        if (currentAction.type === 'completed') {
+          if (taskCountMatch) {
+            const count = numberWords[taskCountMatch[1].toLowerCase()] || taskCountMatch[1];
+            completed.push(`- Finished ${count} tasks`);
+          } else if (taskNumbers.length > 0) {
+            const tasks = taskNumbers.map(t => /^[A-Z]+-\d+$/.test(t) ? t : `Task ${t}`).join(' and ');
+            completed.push(`- Completed ${tasks}`);
+          } else {
+            // Clean up the phrase
+            formattedPhrase = formattedPhrase
+              .replace(/^(finished|completed|done|updated|created)\s+/i, '')
+              .trim();
+            formattedPhrase = formattedPhrase.charAt(0).toUpperCase() + formattedPhrase.slice(1);
+            completed.push(`- ${formattedPhrase}`);
+          }
         } else {
-          // Default to completed if past context
-          completed.push(`- Worked on ${taskList}`);
+          // IN PROGRESS
+          if (taskNumbers.length > 0) {
+            const tasks = taskNumbers.map(t => {
+              // Handle ordinal numbers
+              const ordinalMatch = phrase.match(new RegExp(`(third|fourth|fifth|sixth|3rd|4th|5th|6th)\\s+(?:one|task)?`, 'i'));
+              if (ordinalMatch) {
+                const ordinal = ordinalMatch[1].toLowerCase();
+                return numberWords[ordinal] ? `Task ${numberWords[ordinal]}` : `Task ${t}`;
+              }
+              return /^[A-Z]+-\d+$/.test(t) ? t : `Task ${t}`;
+            }).join(', ');
+            
+            if (/started|starting/i.test(phrase)) {
+              inProgress.push(`- Started working on ${tasks}`);
+            } else if (/will\s+be|by\s+the\s+end|by\s+end|by\s+friday/i.test(phrase)) {
+              if (/by\s+the\s+end\s+of\s+(this\s+)?week/i.test(phrase)) {
+                inProgress.push(`- Will complete ${tasks} by end of this week`);
+              } else {
+                inProgress.push(`- Planning to finish ${tasks}`);
+              }
+            } else if (/testing|developing|working/i.test(phrase)) {
+              const action = /testing/i.test(phrase) ? 'Testing' : 
+                           /developing/i.test(phrase) ? 'Developing' : 'Working on';
+              inProgress.push(`- ${action} ${tasks}`);
+            } else {
+              inProgress.push(`- Working on ${tasks}`);
+            }
+          } else {
+            // Generic in-progress action
+            formattedPhrase = formattedPhrase
+              .replace(/^(started|starting|working|testing)\s+/i, '')
+              .trim();
+            
+            if (/will\s+be|by\s+end/i.test(formattedPhrase)) {
+              inProgress.push(`- ${formattedPhrase.charAt(0).toUpperCase() + formattedPhrase.slice(1)}`);
+            } else {
+              formattedPhrase = formattedPhrase.charAt(0).toUpperCase() + formattedPhrase.slice(1);
+              inProgress.push(`- Currently ${formattedPhrase.toLowerCase()}`);
+            }
+          }
         }
       }
-    });
+    } else {
+      // ============================================
+      // FALLBACK: NO CLEAR ACTIONS FOUND
+      // ============================================
+      // Try basic categorization
+      const sentences = rawInput.split(/[.!?;]+/).filter(s => s.trim().length > 0);
+      
+      sentences.forEach(sentence => {
+        const lower = sentence.toLowerCase();
+        
+        if (/finished|completed|done|updated|created/i.test(lower)) {
+          let clean = sentence.trim();
+          clean = clean.replace(/^(I\s+have\s+|I\s+)/i, '');
+          clean = clean.charAt(0).toUpperCase() + clean.slice(1);
+          completed.push(`- ${clean}`);
+        } else if (/started|working|testing|will|plan/i.test(lower)) {
+          let clean = sentence.trim();
+          clean = clean.replace(/^(I\s+have\s+|I\s+|I'm\s+)/i, '');
+          clean = clean.charAt(0).toUpperCase() + clean.slice(1);
+          inProgress.push(`- ${clean}`);
+        }
+      });
+    }
     
-    // ✅ Add support if found
+    // ============================================
+    // STEP 4: ADD SUPPORT
+    // ============================================
     if (supportTime) {
       support.push(`- ${supportTime}`);
     }
     
+    // ============================================
+    // STEP 5: BUILD FINAL OUTPUT
+    // ============================================
     const result = `## Completed
 ${completed.length > 0 ? completed.join('\n') : 'None'}
 
