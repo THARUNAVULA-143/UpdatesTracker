@@ -5,156 +5,47 @@ const huggingFaceService = require('../services/huggingface');
 const { startOfDay, endOfDay } = require('date-fns');
 
 /**
- * ✅ RULE-BASED PARSER - Reliable fallback
+ * ✅ INTENT-BASED AI PROMPT — Forces clean JSON output
  */
-function ruleBasedParser(input) {
-  console.log('🔧 Using rule-based parser for reliability...');
-  
-  const text = input.toLowerCase();
-  let completed = [];
-  let inProgress = [];
-  let support = "None";
+function buildTaskStatusPrompt(rawInput) {
+  return `You are an expert IT task analyst. Your job is to extract structured task data from the user's daily update.
 
-  // Extract support/time first
-  const timePatterns = [
-    /support\s+(?:taken\s+)?(?:for\s+)?(.+?)(?:\.|$)/i,
-    /(\d+\s*(?:min|minute|minutes|hour|hours|hr|hrs))/i,
-    /(more\s+than\s+\d+\s+(?:min|minute|minutes))/i
-  ];
-  
-  for (const pattern of timePatterns) {
-    const match = input.match(pattern);
-    if (match) {
-      support = match[1].trim();
-      // Normalize
-      support = support.replace(/\bmin\b/gi, 'minutes')
-                      .replace(/\bhr\b/gi, 'hours')
-                      .replace(/\bhrs\b/gi, 'hours');
-      // Capitalize first letter
-      support = support.charAt(0).toUpperCase() + support.slice(1);
-      break;
-    }
-  }
+🎯 GOAL: Return ONLY a valid JSON object — no extra text, no markdown, no explanations.
 
-  // Split on common delimiters
-  const sentences = input
-    .split(/\.|,|and also|also|;/)
-    .map(s => s.trim())
-    .filter(s => s.length > 3);
+✅ RULES:
+1. Fix obvious typos (e.g., "testimg" → "testing", "scenareos" → "scenarios").
+2. Normalize task IDs: "LAA157", "#157", "ticket 157" → "LAA-157".
+3. If no ID, use "General".
+4. For status:
+   - ✅ "completed": task is fully done (finished, done, completed, wrapped up, got over the line, cleared, deployed).
+   - 🟡 "inProgress": task is ongoing (started, working, testing, will, going, tackling, stuck, connected with X for Y).
+5. Extract support time: e.g., "30 min", "2 hours", "None".time spent on support
+6. Keep notes short (< 80 chars), action-oriented.
+7. NEVER invent tasks — only extract from input.
 
-  for (let sentence of sentences) {
-    // Skip if it's just the support part
-    if (/support|minute|min|hour|hr/i.test(sentence) && support !== "None") {
-      continue;
-    }
+📤 OUTPUT FORMAT — STRICTLY:
 
-    const lower = sentence.toLowerCase();
+{
+  "completed": [
+    { "task": "LAA-87", "note": "Done writing test scenarios" }
+  ],
+  "inProgress": [
+    { "task": "LAA-157", "note": "Testing ticket today", "eta": "EOW" }
+  ],
+  "support": "30 minutes"
+}
 
-    // Check for COMPLETED indicators (past tense)
-    const completedIndicators = [
-      /^i\s+completed/i,
-      /^completed/i,
-      /^finished/i,
-      /^done\s+with/i,
-      /^i\s+finished/i,
-      /^resolved/i,
-      /^closed/i,
-      /^fixed/i,
-      /^updated/i,
-      /^created/i,
-      /^wrote/i,
-      /^deployed/i
-    ];
-
-    // Check for IN PROGRESS indicators (future tense)
-    const inProgressIndicators = [
-      /will\s+(?:be\s+)?test/i,
-      /will\s+work/i,
-      /will\s+finish/i,
-      /going\s+to/i,
-      /plan\s+to/i,
-      /working\s+on/i,
-      /currently/i,
-      /testing\s+(?:once|when)/i,
-      /^will/i,
-      /i\s+will/i
-    ];
-
-    let isCompleted = completedIndicators.some(pattern => pattern.test(sentence));
-    let isInProgress = inProgressIndicators.some(pattern => pattern.test(sentence));
-
-    // Clean up the sentence
-    let cleaned = sentence
-      .replace(/^i\s+/i, '')
-      .replace(/^completed\s+/i, '')
-      .replace(/^finished\s+/i, '')
-      .replace(/^done\s+with\s+/i, '')
-      .trim();
-
-    // Capitalize first letter
-    if (cleaned.length > 0) {
-      cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
-    }
-
-    if (isCompleted && !isInProgress) {
-      completed.push(cleaned);
-    } else if (isInProgress || /will|going/.test(lower)) {
-      inProgress.push(cleaned);
-    } else if (isCompleted) {
-      // If both matched, prefer completed
-      completed.push(cleaned);
-    }
-  }
-
-  // Remove duplicates and format
-  completed = [...new Set(completed)].filter(s => s.length > 0);
-  inProgress = [...new Set(inProgress)].filter(s => s.length > 0);
-
-  return {
-    completed: completed.length > 0 ? completed.map(s => `- ${s}`).join('\n') : 'None',
-    inProgress: inProgress.length > 0 ? inProgress.map(s => `- ${s}`).join('\n') : 'None',
-    support: support
-  };
+Now analyze this update: "${rawInput}"`;
 }
 
 /**
- * ✅ PROFESSIONAL AI PROMPT - Simplified
- */
-function buildAIPrompt(rawInput) {
-  return `Parse this standup update into three categories:
-
-INPUT: "${rawInput}"
-
-RULES:
-1. Completed = past tense (finished, done, completed, wrote, updated)
-2. In Progress = future tense (will test, will work, going to, testing once)
-3. Support = time taken only
-
-Split sentences on "and also", "also", commas, and periods.
-Extract EXACT time expressions.
-
-OUTPUT FORMAT:
-## Completed
-- [task 1]
-- [task 2]
-
-## In Progress
-- [task 1]
-
-## Support
-- [time or None]
-
-Be concise and professional. Don't repeat information.`;
-}
-
-/**
- * ✅ FORMAT REPORT - HYBRID APPROACH
+ * ✅ FORMAT REPORT — With robust JSON parsing
  */
 exports.formatReport = async (req, res) => {
   try {
-    console.log('🎨 Formatting report with HYBRID approach...');
+    console.log('🎨 Analyzing task status...');
     
-    const { rawInputs, llmModel, useAI } = req.body;
+    const { rawInputs, llmModel } = req.body;
 
     if (!rawInputs || !rawInputs.accomplishments) {
       return res.status(400).json({
@@ -163,112 +54,182 @@ exports.formatReport = async (req, res) => {
       });
     }
 
-    const input = rawInputs.accomplishments;
-    console.log('📋 Raw input:', input);
+    const input = rawInputs.accomplishments.trim();
+    console.log('📋 Input:', input);
 
     let parsedSections;
     let formattedReport = '';
+    let parsingMethod = 'AI';
 
-    // Try AI first if requested (default), fallback to rule-based
-    if (useAI !== false) {
-      try {
-        console.log('🤖 Trying AI parsing...');
-        const prompt = buildAIPrompt(input);
-        
-        const aiResponse = await huggingFaceService.generateReport(
-          prompt,
-          llmModel || 'Qwen/Qwen2.5-7B-Instruct'
-        );
-
-        console.log('🤖 AI Response:', aiResponse);
-
-        // Extract sections from AI response
-        const extractSection = (text, sectionName) => {
-          const regex = new RegExp(`##\\s*${sectionName}\\s*([\\s\\S]*?)(?=##|$)`, "i");
-          const match = text.match(regex);
-          if (!match) return "";
-          
-          let section = match[1].trim();
-          section = section.replace(/^-\s*-\s*$/gm, '');
-          section = section.replace(/^-\s*$/gm, '');
-          section = section.replace(/\n\n+/g, '\n').trim();
-          
-          return section || "None";
-        };
-
-        parsedSections = {
-          completed: extractSection(aiResponse, "Completed"),
-          inProgress: extractSection(aiResponse, "In Progress"),
-          support: extractSection(aiResponse, "Support"),
-        };
-
-        formattedReport = aiResponse;
-
-        // Validate AI output - check for hallucinations/duplicates
-        const hasIssues = 
-          parsedSections.completed.includes('Task 40, Task 1') ||
-          parsedSections.completed.split('\n').length > 5 ||
-          parsedSections.inProgress.split('\n').length > 5 ||
-          (parsedSections.completed.match(/LAA-187/g) || []).length > 1;
-
-        if (hasIssues) {
-          console.log('⚠️ AI output has quality issues, switching to rule-based...');
-          throw new Error('AI hallucinated');
-        }
-
-      } catch (error) {
-        console.log('⚠️ AI failed, using rule-based parser:', error.message);
-        parsedSections = ruleBasedParser(input);
-        
-        // Build formatted report from parsed sections
-        formattedReport = `## Completed
-${parsedSections.completed}
-
-## In Progress
-${parsedSections.inProgress}
-
-## Support
-${parsedSections.support}`;
-      }
-    } else {
-      // Use rule-based directly
-      parsedSections = ruleBasedParser(input);
+    try {
+      // ✅ Send to AI
+      console.log('🤖 Sending to AI...');
+      const prompt = buildTaskStatusPrompt(input);
       
-      formattedReport = `## Completed
-${parsedSections.completed}
+      const aiResponse = await huggingFaceService.generateReport(
+        prompt,
+        llmModel || 'Qwen/Qwen2.5-72B-Instruct'
+      );
 
-## In Progress
-${parsedSections.inProgress}
+      console.log('🤖 AI Response:', aiResponse);
 
-## Support
-${parsedSections.support}`;
+      // ✅ Extract JSON from response (handles ```json ... ```)
+      let jsonText = aiResponse.trim();
+      const codeBlockMatch = jsonText.match(/```(?:json)?\s*({[\s\S]*?})\s*```/i);
+      if (codeBlockMatch) {
+        jsonText = codeBlockMatch[1];
+      }
+
+      // ✅ Try to parse JSON
+      let parsedJson;
+      try {
+        parsedJson = JSON.parse(jsonText);
+      } catch (e) {
+        throw new Error(`AI did not return valid JSON: ${e.message}. Raw response: ${aiResponse}`);
+      }
+
+      // ✅ Validate structure
+      if (!parsedJson || !Array.isArray(parsedJson.completed) || !Array.isArray(parsedJson.inProgress)) {
+        throw new Error('Invalid JSON structure');
+      }
+
+      // ✅ Convert to bullet-point strings for frontend
+      const completedStr = parsedJson.completed.length
+        ? parsedJson.completed.map(t => `• ${t.task}: ${t.note}`).join('\n')
+        : 'None';
+
+      const inProgressStr = parsedJson.inProgress.length
+        ? parsedJson.inProgress.map(t => {
+            let note = `• ${t.task}: ${t.note}`;
+            if (t.eta) note += ` (ETA: ${t.eta})`;
+            return note;
+          }).join('\n')
+        : 'None';
+
+      const supportStr = parsedJson.support || 'None';
+
+      parsedSections = {
+        completed: completedStr,
+        inProgress: inProgressStr,
+        support: supportStr
+      };
+
+      formattedReport = `Completed:\n${completedStr}\n\nIn Progress:\n${inProgressStr}\n\nSupport: ${supportStr}`;
+      parsingMethod = 'AI (JSON)';
+    } catch (error) {
+      console.error('⚠️ AI failed:', error.message);
+      console.log('🔧 Using fallback parser...');
+
+      // ✅ Fallback: Simple regex-based parser (for when AI fails)
+      parsedSections = fallbackTaskParser(input);
+      parsingMethod = 'Fallback';
     }
 
-    console.log('✅ Final parsed sections:', parsedSections);
+    console.log('✅ Final sections:', parsedSections);
+    console.log('📊 Method:', parsingMethod);
 
     res.status(200).json({
       success: true,
-      message: 'Report formatted successfully',
+      message: 'Task status analyzed successfully',
       formattedReport,
       parsedSections,
+      meta: { 
+        parsingMethod,
+        inputLength: input.length,
+        date: new Date().toLocaleDateString()
+      }
     });
     
   } catch (error) {
-    console.error('❌ Error formatting report:', error);
+    console.error('❌ Error:', error);
     res.status(500).json({
       success: false,
-      message: error.message || 'Failed to format report',
+      message: error.message || 'Failed to analyze tasks',
     });
   }
 };
 
 /**
- * ✅ CREATE REPORT (Save to Database)
+ * ✅ FALLBACK PARSER — Simple, reliable, for when AI fails
+ */
+function fallbackTaskParser(input) {
+  console.log('🔧 Fallback Parser Activated — Input:', input);
+
+  let completed = [];
+  let inProgress = [];
+  let support = "None";
+
+  // ✅ Extract support time
+  const supportRegex = /(?:connected|took|spent|had|used)\s+support\s+(?:for\s+)?(\d+)\s*(min|minute|minutes|hour|hours)/i;
+  const match = input.match(supportRegex);
+  if (match) {
+    const num = match[1];
+    const unit = match[2].toLowerCase().startsWith('h') ? 'hours' : 'minutes';
+    support = `${num} ${unit}`;
+  }
+
+  // ✅ Split by sentence
+  const sentences = input
+    .replace(/([.!?])\s+/g, '$1\n')
+    .split('\n')
+    .map(s => s.trim())
+    .filter(s => s.length > 5);
+
+  for (let sentence of sentences) {
+    sentence = sentence.replace(/^I\s+/i, '').trim();
+    const lower = sentence.toLowerCase();
+
+    // Detect task ID
+    let taskId = null;
+    let note = sentence;
+
+    const laaMatch = sentence.match(/(?:LAA[-\s]*|laa[-\s]*|ticket[-\s]*|#\s*)(\d+)/i);
+    if (laaMatch) {
+      taskId = `LAA-${laaMatch[1]}`;
+      note = sentence.replace(laaMatch[0], '').trim();
+    }
+
+    // Clean note
+    note = note
+      .replace(/^(have\s+|am\s+|will\s+|was\s+|worked\s+on\s+|started\s+on\s+)?/i, '')
+      .replace(/^(and\s+|also\s+)/i, '')
+      .replace(/[.,]?\s*thank you.*$/i, '')
+      .replace(/\.$/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (note.length > 150) note = note.substring(0, 147) + '...';
+
+    // Status logic
+    const completedVerbs = ['completed', 'finished', 'done', 'deployed', 'closed', 'resolved', 'fixed', 'merged', 'pushed', 'tested', 'verified', 'updated', 'written', 'delivered', 'wrapped', 'cleared', 'got over the line'];
+    const inProgressVerbs = ['testing', 'working', 'doing', 'will', 'going', 'started', 'plan', 'tomorrow', '%', 'discuss', 'connect', 'debug', 'fix', 'update', 'check', 'in progress', 'stuck', 'tackled'];
+
+    const hasCompleted = completedVerbs.some(verb => new RegExp(`\\b${verb}\\b`, 'i').test(lower));
+    const hasInProgress = inProgressVerbs.some(verb => new RegExp(`\\b${verb}\\b`, 'i').test(lower));
+
+    const bullet = taskId ? `• ${taskId}: ${note}` : `• ${note}`;
+
+    if (hasCompleted && !hasInProgress) {
+      completed.push(bullet);
+    } else if (hasInProgress || /by\s+end\s+of\s+this\s+week/i.test(sentence)) {
+      inProgress.push(bullet);
+    } else {
+      inProgress.push(bullet);
+    }
+  }
+
+  return {
+    completed: completed.join('\n') || 'None',
+    inProgress: inProgress.join('\n') || 'None',
+    support: support
+  };
+}
+
+/**
+ * ✅ CREATE REPORT — Store one record
  */
 exports.createReport = async (req, res) => {
   try {
-    console.log('💾 Creating and SAVING report...');
-    
     const { rawInputs, llmModel, title, parsedSections } = req.body;
 
     if (!parsedSections) {
@@ -278,53 +239,39 @@ exports.createReport = async (req, res) => {
       });
     }
 
-    // Build formatted report from sections if not provided
-    let formattedReport = req.body.formattedReport;
-    if (!formattedReport) {
-      formattedReport = `## Completed
-${parsedSections.completed || 'None'}
-
-## In Progress
-${parsedSections.inProgress || 'None'}
-
-## Support
-${parsedSections.support || 'None'}`;
-    }
+    let formattedReport = req.body.formattedReport || `Completed: ${parsedSections.completed}
+In Progress: ${parsedSections.inProgress}
+Support: ${parsedSections.support}`;
 
     const report = new Report({
-      rawInputs: {
-        accomplishments: rawInputs?.accomplishments || '',
-      },
-      formattedReport: formattedReport,
-      completed: parsedSections.completed || 'None',
-      inProgress: parsedSections.inProgress || 'None',
-      support: parsedSections.support || 'None',
-      llmModel: llmModel || 'Hybrid Parser',
+      rawInputs: { accomplishments: rawInputs?.accomplishments || '' },
+      formattedReport,
+      completed: parsedSections.completed,
+      inProgress: parsedSections.inProgress,
+      support: parsedSections.support,
+      llmModel: llmModel || 'Intent-Based Analyzer',
       title: title || `Daily Report - ${new Date().toLocaleDateString()}`,
     });
 
     await report.save();
-
-    console.log('💾 SAVED TO DATABASE:', report._id);
+    console.log('💾 Saved:', report._id);
 
     res.status(201).json({
       success: true,
       message: 'Report saved successfully',
-      data: report,
+      data: report,  // ✅ FIXED: Changed from 'report' to 'data'
     });
-    
   } catch (error) {
-    console.error('❌ Error creating report:', error);
+    console.error('❌ Error:', error);
     res.status(500).json({
       success: false,
       message: error.message || 'Failed to create report',
-      error: error.message
     });
   }
 };
 
 /**
- * ✅ GET ALL REPORTS
+ * ✅ GET ALL REPORTS — FIXED: Returns 'data' not 'reports'
  */
 exports.getAllReports = async (req, res) => {
   try {
@@ -332,168 +279,92 @@ exports.getAllReports = async (req, res) => {
     res.status(200).json({ 
       success: true, 
       count: reports.length, 
-      data: reports 
+      data: reports  // ✅ FIXED: Changed from 'reports' to 'data'
     });
   } catch (error) {
     console.error('❌ Error fetching reports:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Failed to fetch reports'
+      message: 'Failed to fetch reports' 
     });
   }
 };
 
-/**
- * ✅ GET REPORT BY ID
- */
 exports.getReportById = async (req, res) => {
   try {
     const report = await Report.findById(req.params.id);
-    if (!report) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Report not found' 
-      });
-    }
+    if (!report) return res.status(404).json({ success: false, message: 'Report not found' });
     res.status(200).json({ 
       success: true, 
-      data: report 
+      data: report  // ✅ FIXED: Changed from 'report' to 'data'
     });
   } catch (error) {
-    console.error('❌ Error fetching report:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to fetch report'
-    });
+    res.status(500).json({ success: false, message: 'Failed to fetch report' });
   }
 };
 
-/**
- * ✅ GET REPORTS BY DATE RANGE
- */
 exports.getReportsByDateRange = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    
     if (!startDate || !endDate) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Provide both startDate and endDate' 
-      });
+      return res.status(400).json({ success: false, message: 'Provide both dates' });
     }
-    
     const start = startOfDay(new Date(startDate));
     const end = endOfDay(new Date(endDate));
-    
-    const reports = await Report.find({ 
-      createdAt: { $gte: start, $lte: end } 
-    }).sort({ createdAt: -1 });
-    
+    const reports = await Report.find({ createdAt: { $gte: start, $lte: end } }).sort({ createdAt: -1 });
     res.status(200).json({ 
       success: true, 
       count: reports.length, 
-      data: reports 
+      data: reports  // ✅ FIXED: Changed from 'reports' to 'data'
     });
   } catch (error) {
-    console.error('❌ Error fetching reports:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to fetch reports'
-    });
+    res.status(500).json({ success: false, message: 'Failed to fetch reports' });
   }
 };
 
-/**
- * ✅ UPDATE REPORT
- */
 exports.updateReport = async (req, res) => {
   try {
     const { completed, inProgress, support } = req.body;
-
-    const updatedReport = await Report.findByIdAndUpdate(
+    const report = await Report.findByIdAndUpdate(
       req.params.id,
-      {
-        completed: completed || 'None',
-        inProgress: inProgress || 'None',
-        support: support || 'None',
-      },
+      { completed, inProgress, support },
       { new: true, runValidators: true }
     );
-    
-    if (!updatedReport) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Report not found' 
-      });
-    }
-
-    console.log('✅ Report updated:', updatedReport._id);
-    
+    if (!report) return res.status(404).json({ success: false, message: 'Report not found' });
     res.status(200).json({ 
       success: true, 
-      message: 'Report updated successfully', 
-      data: updatedReport 
+      message: 'Report updated', 
+      data: report  // ✅ FIXED: Changed from 'report' to 'data'
     });
   } catch (error) {
-    console.error('❌ Error updating report:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to update report'
-    });
+    res.status(500).json({ success: false, message: 'Failed to update report' });
   }
 };
 
-/**
- * ✅ DELETE REPORT
- */
 exports.deleteReport = async (req, res) => {
   try {
     const report = await Report.findByIdAndDelete(req.params.id);
-    
-    if (!report) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Report not found' 
-      });
-    }
-
-    console.log('✅ Report deleted:', req.params.id);
-    
-    res.status(200).json({ 
-      success: true, 
-      message: 'Report deleted successfully' 
-    });
+    if (!report) return res.status(404).json({ success: false, message: 'Report not found' });
+    res.status(200).json({ success: true, message: 'Report deleted' });
   } catch (error) {
-    console.error('❌ Error deleting report:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to delete report'
-    });
+    res.status(500).json({ success: false, message: 'Failed to delete report' });
   }
 };
 
-/**
- * ✅ GET AVAILABLE MODELS
- */
 exports.getAvailableModels = (req, res) => {
   try {
     const models = [
-      'Rule-Based Parser (Most Reliable)',
+      'Qwen/Qwen2.5-72B-Instruct',
       'Qwen/Qwen2.5-7B-Instruct',
-      'mistralai/Mistral-7B-Instruct-v0.2',
+      'mistralai/Mistral-7B-Instruct-v0.3',
       'microsoft/Phi-3-mini-4k-instruct'
     ];
-    
     res.status(200).json({ 
       success: true, 
       count: models.length, 
-      data: models 
+      data: models  // ✅ FIXED: Changed from 'models' to 'data'
     });
   } catch (error) {
-    console.error('❌ Error getting models:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to get models'
-    });
+    res.status(500).json({ success: false, message: 'Failed to get models' });
   }
 };

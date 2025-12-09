@@ -31,13 +31,13 @@ const ExportModal = ({ isOpen, onClose }) => {
         url += `months=${months}`;
       }
 
-      console.log('🔍 Fetching export from:', url);
+      console.log(' Fetching export from:', url);
 
       // Fetch the file
       const response = await fetch(url);
       
-      console.log('📥 Response status:', response.status);
-      console.log('📥 Response headers:', response.headers);
+      console.log('Response status:', response.status);
+      console.log('Response headers:', response.headers);
 
       // Check if response is OK
       if (!response.ok) {
@@ -54,7 +54,7 @@ const ExportModal = ({ isOpen, onClose }) => {
       // Get the blob
       const blob = await response.blob();
       
-      console.log('✅ Blob received, size:', blob.size);
+      console.log('Blob received, size:', blob.size);
 
       if (blob.size === 0) {
         throw new Error('Received empty file');

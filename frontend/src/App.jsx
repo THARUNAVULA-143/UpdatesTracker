@@ -140,14 +140,14 @@ function App() {
         throw new Error("No parsedSections returned from backend");
       }
 
-      // Store both parsed sections AND the formatted report
+      // ✅ Keep one report — no splitting
       setPreviewData({
         date: new Date(),
         completed: response.parsedSections.completed || "None",
         inProgress: response.parsedSections.inProgress || "None",
         support: response.parsedSections.support || "None",
         rawText: spokenText,
-        fullFormattedReport: response.formattedReport || '' // ✅ Store the full formatted report
+        fullFormattedReport: response.formattedReport || ''
       });
       
       setStep(2);
@@ -160,7 +160,7 @@ function App() {
   };
 
   // ============================================
-  // HANDLE SAVE (SAVE TO DATABASE)
+  // HANDLE SAVE (SAVE ONE RECORD)
   // ============================================
   const handleSave = async () => {
     if (!previewData) {
@@ -176,14 +176,7 @@ function App() {
           accomplishments: previewData.rawText,
         },
         title: `Daily Report - ${format(new Date(), 'MMM dd, yyyy')}`,
-        formattedReport: previewData.fullFormattedReport || `## Completed
-${previewData.completed}
-
-## In Progress
-${previewData.inProgress}
-
-## Support
-${previewData.support}`, // ✅ Build formattedReport if not present
+        formattedReport: previewData.fullFormattedReport || `Completed: ${previewData.completed}\nIn Progress: ${previewData.inProgress}\nSupport: ${previewData.support}`,
         parsedSections: {
           completed: previewData.completed,
           inProgress: previewData.inProgress,
@@ -278,11 +271,6 @@ ${previewData.support}`, // ✅ Build formattedReport if not present
   };
 
   // ============================================
-  // COMPUTED VALUES
-  // ============================================
-  const hasInput = spokenText.trim().length > 0;
-
-  // ============================================
   // RENDER STEP 1: RECORDING
   // ============================================
   if (step === 1) {
@@ -346,11 +334,11 @@ ${previewData.support}`, // ✅ Build formattedReport if not present
               <div className="flex justify-center gap-6 mt-8">
                 <button
                   onClick={handleNext}
-                  disabled={loading || !hasInput}
+                  disabled={loading || !spokenText.trim()}
                   className={`flex items-center gap-2 px-10 py-3 rounded-xl font-semibold transition-all transform hover:scale-105 shadow-lg ${
                     loading
                       ? 'bg-gray-400 text-white cursor-wait'
-                      : hasInput
+                      : spokenText.trim()
                       ? 'bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white'
                       : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   }`}
@@ -448,7 +436,10 @@ ${previewData.support}`, // ✅ Build formattedReport if not present
                                 className="w-full h-20 p-2 border border-gray-300 rounded text-sm focus:border-indigo-500 focus:outline-none resize-none"
                               />
                             ) : (
-                              <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                              <div 
+                                className="border-2 border-gray-200 px-4 py-3 text-gray-700 whitespace-pre-line"
+                                style={{ lineHeight: '1.5', fontFamily: 'monospace' }}
+                              >
                                 {report.completed || 'None'}
                               </div>
                             )}
@@ -461,7 +452,10 @@ ${previewData.support}`, // ✅ Build formattedReport if not present
                                 className="w-full h-20 p-2 border border-gray-300 rounded text-sm focus:border-indigo-500 focus:outline-none resize-none"
                               />
                             ) : (
-                              <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                              <div 
+                                className="text-sm text-gray-700 whitespace-pre-line"
+                                style={{ lineHeight: '1.5', fontFamily: 'monospace' }}
+                              >
                                 {report.inProgress || 'None'}
                               </div>
                             )}
@@ -474,7 +468,10 @@ ${previewData.support}`, // ✅ Build formattedReport if not present
                                 className="w-full h-20 p-2 border border-gray-300 rounded text-sm focus:border-indigo-500 focus:outline-none resize-none"
                               />
                             ) : (
-                              <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                              <div 
+                                className="text-sm text-gray-700 whitespace-pre-line"
+                                style={{ lineHeight: '1.5', fontFamily: 'monospace' }}
+                              >
                                 {report.support || 'None'}
                               </div>
                             )}
@@ -533,7 +530,7 @@ ${previewData.support}`, // ✅ Build formattedReport if not present
   }
 
   // ============================================
-  // RENDER STEP 2: PREVIEW
+  // RENDER STEP 2: PREVIEW — SINGLE ROW, BULLET POINTS
   // ============================================
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex flex-col">
@@ -591,6 +588,7 @@ ${previewData.support}`, // ✅ Build formattedReport if not present
               </button>
             </div>
 
+            {/* ✅ SINGLE-ROW TABLE WITH BULLET POINTS */}
             <div className="overflow-x-auto rounded-xl border-2 border-gray-200">
               <table className="w-full border-collapse">
                 <thead>
@@ -606,13 +604,22 @@ ${previewData.support}`, // ✅ Build formattedReport if not present
                     <td className="border-2 border-blue-300 px-6 py-5 font-bold text-gray-800">
                       {previewData && format(previewData.date, 'MMM dd, yyyy')}
                     </td>
-                    <td className="border-2 border-blue-300 px-6 py-5 text-gray-700 whitespace-pre-wrap">
-                      {previewData?.completed}
+                    <td 
+                      className="border-2 border-blue-300 px-6 py-5 text-gray-700 whitespace-pre-line"
+                      style={{ lineHeight: '1.5', fontFamily: 'monospace' }}
+                    >
+                      {previewData?.completed === 'None' ? '—' : previewData?.completed}
                     </td>
-                    <td className="border-2 border-blue-300 px-6 py-5 text-gray-700 whitespace-pre-wrap">
-                      {previewData?.inProgress}
+                    <td 
+                      className="border-2 border-blue-300 px-6 py-5 text-gray-700 whitespace-pre-line"
+                      style={{ lineHeight: '1.5', fontFamily: 'monospace' }}
+                    >
+                      {previewData?.inProgress === 'None' ? '—' : previewData?.inProgress}
                     </td>
-                    <td className="border-2 border-blue-300 px-6 py-5 text-gray-700 whitespace-pre-wrap">
+                    <td 
+                      className="border-2 border-blue-300 px-6 py-5 text-gray-700 whitespace-pre-line"
+                      style={{ lineHeight: '1.5', fontFamily: 'monospace' }}
+                    >
                       {previewData?.support}
                     </td>
                   </tr>

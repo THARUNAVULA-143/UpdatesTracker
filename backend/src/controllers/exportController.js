@@ -5,9 +5,7 @@ const { Parser } = require('json2csv');
 const PDFDocument = require('pdfkit');
 const ExcelJS = require('exceljs');
 
-/**
- * ✅ GET REPORTS BY DATE RANGE
- */
+//GET REPORTS BY DATE RANGE
 const getReportsByDateRange = async (startDate, endDate) => {
   const start = startOfDay(new Date(startDate));
   const end = endOfDay(new Date(endDate));
@@ -16,12 +14,10 @@ const getReportsByDateRange = async (startDate, endDate) => {
     createdAt: { $gte: start, $lte: end } 
   }).sort({ createdAt: -1 });
   
-  return reports; // ✅ Fixed: Added return statement
+  return reports; 
 };
 
-/**
- * ✅ EXPORT AS CSV
- */
+//EXPORT AS CSV
 exports.exportCSV = async (req, res) => {
   try {
     const { months, startDate, endDate } = req.query;
@@ -77,9 +73,7 @@ exports.exportCSV = async (req, res) => {
   }
 };
 
-/**
- * ✅ EXPORT AS PDF
- */
+//EXPORT AS PDF
 exports.exportPDF = async (req, res) => {
   try {
     const { months, startDate, endDate } = req.query;
@@ -164,9 +158,7 @@ exports.exportPDF = async (req, res) => {
   }
 };
 
-/**
- * ✅ EXPORT AS EXCEL
- */
+//EXPORT AS EXCEL
 exports.exportExcel = async (req, res) => {
   try {
     const { months, startDate, endDate } = req.query;
@@ -250,7 +242,7 @@ exports.exportExcel = async (req, res) => {
     res.end();
 
   } catch (error) {
-    console.error('❌ Error exporting Excel:', error);
+    console.error('Error exporting Excel:', error);
     
     if (!res.headersSent) {
       return res.status(500).json({ 
